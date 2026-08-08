@@ -75,6 +75,30 @@ public class VolunteerDAO {
     }
 
     /**
+     * Finds a volunteer profile by the linked user_id.
+     * Useful for checking "does this user already have a volunteer profile?"
+     * before creating a new one (user_id is UNIQUE in the schema).
+     *
+     * @return the Volunteer, or null if this user has no volunteer profile.
+     */
+    public Volunteer findByUserId(int userId) throws SQLException {
+        String sql = "SELECT * FROM volunteers WHERE user_id = ?";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, userId);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return mapRowToVolunteer(rs);
+                }
+                return null;
+            }
+        }
+    }
+
+    /**
      * Returns all volunteer profiles.
      */
     public List<Volunteer> findAll() throws SQLException {
