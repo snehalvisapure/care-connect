@@ -1,0 +1,7 @@
+# TEMPLATE - copy this file to db.properties (in the same folder) and fill
+# in your own local MySQL credentials. db.properties is gitignored so your
+# real password never gets committed.
+
+db.url=jdbc:mysql://localhost:3306/careconnect?useSSL=false&serverTimezone=UTC
+db.username=root
+db.password=your_password_here
