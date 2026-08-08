@@ -1,0 +1,14 @@
+# Maven build output
+backend/target/
+
+# IDE files
+.idea/
+*.iml
+out/
+
+# Sensitive config - contains real DB password, do not commit
+backend/src/main/resources/db.properties
+
+# OS files
+.DS_Store
+Thumbs.db
