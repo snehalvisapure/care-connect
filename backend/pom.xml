@@ -14,7 +14,9 @@
     <groupId>com.careconnect</groupId>
     <artifactId>care-connect-backend</artifactId>
     <version>1.0-SNAPSHOT</version>
-    <packaging>jar</packaging>
+    <!-- Changed from jar to war: a war (Web Application Archive) is the
+         standard packaging for a Servlet-based web app, deployable to Tomcat -->
+    <packaging>war</packaging>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
@@ -28,6 +30,26 @@
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <version>8.4.0</version>
+        </dependency>
+
+        <!-- Servlet API - matches Tomcat 9 (javax.servlet namespace, not the
+             newer jakarta.servlet namespace used by Tomcat 10+).
+             scope=provided: Tomcat supplies this at runtime, so it's only
+             needed for compiling, not bundled into the war. -->
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Gson - lightweight JSON library, used to convert Java objects to/from
+             JSON in Servlet request/response bodies. Not a heavy framework like
+             Spring - just a small utility, consistent with the "plain Java" stack. -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.8.9</version>
         </dependency>
 
         <!-- JUnit for basic testing (optional, safe to remove if unused) -->
@@ -47,6 +69,33 @@
                 <version>3.13.0</version>
                 <configuration>
                     <release>17</release>
+                </configuration>
+            </plugin>
+
+            <!-- Prevents build failure if src/main/webapp/WEB-INF/web.xml doesn't
+                 exist - we're using annotation-based servlets (@WebServlet),
+                 so a web.xml isn't required. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>3.4.0</version>
+                <configuration>
+                    <failOnMissingWebXml>false</failOnMissingWebXml>
+                </configuration>
+            </plugin>
+
+            <!-- Embedded Tomcat plugin: lets you run the app with
+                 "mvn tomcat7:run" from the terminal, no separate Tomcat
+                 install needed, no IntelliJ Ultimate deployment features
+                 needed. Despite the name "tomcat7", this plugin works fine
+                 for running a standard Servlet 4.0 app for local dev/testing. -->
+            <plugin>
+                <groupId>org.apache.tomcat.maven</groupId>
+                <artifactId>tomcat7-maven-plugin</artifactId>
+                <version>2.2</version>
+                <configuration>
+                    <port>8080</port>
+                    <path>/</path>
                 </configuration>
             </plugin>
         </plugins>
