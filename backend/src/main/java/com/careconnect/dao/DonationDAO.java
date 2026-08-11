@@ -172,6 +172,27 @@ public class DonationDAO {
         }
     }
 
+    // Record transaction ID and receipt number once a payment is confirmed
+    public boolean updateTransactionAndReceipt(int donationId, String transactionId, String receiptNumber)
+            throws SQLException {
+
+        String sql = """
+                UPDATE donations
+                SET transaction_id = ?, receipt_number = ?
+                WHERE donation_id = ?
+                """;
+
+        try (Connection connection = DBConnection.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+
+            statement.setString(1, transactionId);
+            statement.setString(2, receiptNumber);
+            statement.setInt(3, donationId);
+
+            return statement.executeUpdate() > 0;
+        }
+    }
+
     // Update donation status
     public boolean updateDonationStatus(int donationId, String donationStatus)
             throws SQLException {
