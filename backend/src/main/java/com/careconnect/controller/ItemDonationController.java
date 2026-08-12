@@ -145,7 +145,7 @@ public class ItemDonationController extends HttpServlet {
 
         } catch (JsonSyntaxException e) {
             writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Malformed JSON in request body.");
-        } catch (NumberFormatException | IllegalArgumentException e) {
+        } catch (IllegalArgumentException e) {
             // NumberFormatException (invalid ID/date) must be caught before the
             // broader IllegalArgumentException (validation failures), since it's
             // a subclass - Java would otherwise reject this as unreachable code.
