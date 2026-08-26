@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your profile — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section" style="max-width: 640px;">
+    <div class="page-header">
+      <h1>Your profile</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div class="card" style="margin-bottom: 24px;">
+      <h3>Account details</h3>
+      <form id="profile-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" disabled />
+            <small>Email can't be changed here.</small>
+          </div>
+          <div class="form-group">
+            <label for="role">Role</label>
+            <input type="text" id="role" disabled />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="fullName">Full name</label>
+          <input type="text" id="fullName" required />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="phone">Phone</label>
+            <input type="tel" id="phone" />
+          </div>
+          <div class="form-group">
+            <label for="address">Address</label>
+            <input type="text" id="address" />
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="profile-submit-btn">Save changes</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>Change password</h3>
+      <form id="password-form">
+        <div class="form-group">
+          <label for="oldPassword">Current password</label>
+          <input type="password" id="oldPassword" required />
+        </div>
+        <div class="form-group">
+          <label for="newPassword">New password</label>
+          <input type="password" id="newPassword" minlength="6" required />
+          <small>At least 6 characters.</small>
+        </div>
+        <button type="submit" class="btn btn-outline" id="password-submit-btn">Change password</button>
+      </form>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      // This page requires login - bootPage redirects to login.html if
+      // nobody's signed in, and returns null after doing so.
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
+
+      // Fill the profile form from the session we already have.
+      document.getElementById("email").value = user.email;
+      document.getElementById("role").value = user.role;
+      document.getElementById("fullName").value = user.fullName || "";
+      document.getElementById("phone").value = user.phone || "";
+      document.getElementById("address").value = user.address || "";
+
+      const profileForm = document.getElementById("profile-form");
+      const profileBtn = document.getElementById("profile-submit-btn");
+
+      profileForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = {
+          fullName: document.getElementById("fullName").value.trim(),
+          phone: document.getElementById("phone").value.trim(),
+          address: document.getElementById("address").value.trim(),
+          profilePhoto: user.profilePhoto || null,
+        };
+
+        profileBtn.disabled = true;
+        profileBtn.textContent = "Saving...";
+        try {
+          const updated = await Api.profile.update(payload);
+          UiHelpers.toast("Profile updated.", "success");
+          // Refresh the header greeting in case the name changed.
+          await Session.refresh();
+          UiHelpers.renderAuthSlot("../../");
+        } catch (err) {
+          console.error(err);
+          UiHelpers.toast(err.message || "Could not update profile.", "error");
+        } finally {
+          profileBtn.disabled = false;
+          profileBtn.textContent = "Save changes";
+        }
+      });
+
+      const passwordForm = document.getElementById("password-form");
+      const passwordBtn = document.getElementById("password-submit-btn");
+
+      passwordForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const oldPassword = document.getElementById("oldPassword").value;
+        const newPassword = document.getElementById("newPassword").value;
+
+        passwordBtn.disabled = true;
+        passwordBtn.textContent = "Changing...";
+        try {
+          await Api.profile.changePassword(oldPassword, newPassword);
+          UiHelpers.toast("Password changed.", "success");
+          passwordForm.reset();
+        } catch (err) {
+          console.error(err);
+          UiHelpers.toast(err.message || "Could not change password.", "error");
+        } finally {
+          passwordBtn.disabled = false;
+          passwordBtn.textContent = "Change password";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
