@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Event details — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div id="content-slot">
+      <p>Loading...</p>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      // Public - no requireAuth. Only RSVPing needs login.
+      const user = await UiHelpers.bootPage({ rootPath: "../../" });
+
+      const contentSlot = document.getElementById("content-slot");
+      const params = new URLSearchParams(window.location.search);
+      const eventId = params.get("id");
+
+      if (!eventId) {
+        contentSlot.innerHTML = `<p>No event specified.</p>`;
+        return;
+      }
+
+      async function load() {
+        let ev;
+        try {
+          ev = await Api.events.getById(eventId);
+        } catch (err) {
+          console.error(err);
+          contentSlot.innerHTML = `<p>Could not load this event. ${err.message || ""}</p>`;
+          return;
+        }
+
+        let instName = `Institution #${ev.institutionId}`;
+        try {
+          const inst = await Api.institutions.getById(ev.institutionId);
+          instName = inst.institutionName;
+        } catch (e) {
+          console.warn("Could not load institution:", e);
+        }
+
+        let rsvps = [];
+        try {
+          rsvps = await Api.rsvps.listByEvent(eventId);
+        } catch (e) {
+          console.warn("Could not load RSVPs:", e);
+        }
+
+        const goingCount = rsvps.filter((r) => r.response === "GOING").length;
+        const interestedCount = rsvps.filter((r) => r.response === "INTERESTED").length;
+
+        let myStatus = null;
+        if (user) {
+          try {
+            myStatus = await Api.rsvps.getMyStatus(eventId, user.userId);
+          } catch (e) {
+            console.warn("Could not load my RSVP status:", e);
+          }
+        }
+
+        contentSlot.innerHTML = `
+          <div class="page-header">
+            <h1>${ev.title}</h1>
+            <span class="status-pill category-pill">${ev.category}</span>
+          </div>
+          <div class="card" style="max-width: 640px;">
+            <p><strong>Hosted by:</strong> ${instName}</p>
+            <p><strong>When:</strong> ${UiHelpers.formatDate(ev.eventDate)}${ev.eventTime ? " · " + ev.eventTime.slice(0, 5) : ""}</p>
+            <p><strong>Where:</strong> ${ev.location || "—"}</p>
+            <p>${ev.description || ""}</p>
+            <p class="text-small">${goingCount} going · ${interestedCount} interested</p>
+            <div id="rsvp-slot"></div>
+          </div>
+
+          <h3 class="donation-section-title">Who's coming</h3>
+          <div id="rsvp-list"></div>
+        `;
+
+        const rsvpSlot = document.getElementById("rsvp-slot");
+        if (!user) {
+          rsvpSlot.appendChild(UiHelpers.loginRequiredNotice("RSVPing to this event", "../auth/login.html"));
+        } else {
+          const responses = ["INTERESTED", "GOING", "NOT_GOING"];
+          const toggle = document.createElement("div");
+          toggle.className = "rsvp-toggle";
+          toggle.style.marginTop = "12px";
+          responses.forEach((r) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "btn btn-outline btn-sm" + (myStatus && myStatus.response === r ? " active" : "");
+            btn.textContent = r.replace("_", " ");
+            btn.addEventListener("click", async () => {
+              try {
+                await Api.rsvps.setRsvp(eventId, user.userId, r);
+                UiHelpers.toast("RSVP updated.", "success");
+                load();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not update RSVP.", "error");
+              }
+            });
+            toggle.appendChild(btn);
+          });
+          rsvpSlot.appendChild(toggle);
+
+          if (myStatus) {
+            const removeBtn = document.createElement("button");
+            removeBtn.type = "button";
+            removeBtn.className = "btn btn-outline btn-sm";
+            removeBtn.style.marginTop = "8px";
+            removeBtn.textContent = "Remove my RSVP";
+            removeBtn.addEventListener("click", async () => {
+              if (!confirm("Remove your RSVP for this event?")) return;
+              try {
+                await Api.rsvps.remove(eventId, user.userId);
+                UiHelpers.toast("RSVP removed.", "success");
+                load();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not remove RSVP.", "error");
+              }
+            });
+            rsvpSlot.appendChild(document.createElement("br"));
+            rsvpSlot.appendChild(removeBtn);
+          }
+        }
+
+        const rsvpList = document.getElementById("rsvp-list");
+        if (rsvps.length === 0) {
+          rsvpList.innerHTML = `<div class="card empty-state">No RSVPs yet.</div>`;
+        } else {
+          rsvpList.className = "donation-list";
+          rsvps.forEach((r) => {
+            const row = document.createElement("div");
+            row.className = "donation-row";
+            row.innerHTML = `
+              <div class="donation-row-main">
+                User #${r.userId}
+                <span class="status-pill rsvp-response-${r.response}">${r.response.replace("_", " ")}</span>
+              </div>
+            `;
+            rsvpList.appendChild(row);
+          });
+        }
+      }
+
+      await load();
+    })();
+  </script>
+</body>
+</html>

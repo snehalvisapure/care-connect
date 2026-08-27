@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Donate — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Donate</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div style="margin-bottom: 12px;">
+      <a class="btn btn-outline btn-sm" href="my-donations.html">View my donations</a>
+    </div>
+
+    <div id="notice-slot"></div>
+
+    <div id="content-slot">
+      <p>Loading...</p>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      // Donating requires knowing who the donor is, so this needs login.
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("unenforced"));
+
+      const notice = document.getElementById("notice-slot");
+      const warn = document.createElement("div");
+      warn.className = "pending-banner";
+      warn.innerHTML = `
+        <strong>⚠️ Heads up</strong>
+        <p>The backend accepts whatever donorId the client sends - it doesn't
+        check your session for this. This form always sends your own
+        logged-in userId as the donor, but that check happens here in the
+        browser, not on the server.</p>
+      `;
+      notice.appendChild(warn);
+
+      const contentSlot = document.getElementById("content-slot");
+      const params = new URLSearchParams(window.location.search);
+      const presetNeedId = params.get("needId");
+      let presetInstitutionId = params.get("institutionId");
+
+      let presetNeed = null;
+      if (presetNeedId) {
+        try {
+          presetNeed = await Api.needs.getById(presetNeedId);
+          presetInstitutionId = presetNeed.institutionId;
+        } catch (err) {
+          console.warn("Could not load the preset need:", err);
+        }
+      }
+
+      let institutions = [];
+      try {
+        institutions = await Api.institutions.list(true); // approvedOnly
+      } catch (err) {
+        console.error(err);
+        contentSlot.innerHTML = `<p>Could not load institutions. ${err.message || ""}</p>`;
+        return;
+      }
+
+      if (institutions.length === 0) {
+        contentSlot.innerHTML = `
+          <div class="card empty-state">
+            <h3>No approved institutions yet</h3>
+            <p>There's nowhere to send a donation to right now.</p>
+          </div>
+        `;
+        return;
+      }
+
+      contentSlot.innerHTML = `
+        <div class="donation-type-toggle">
+          <button type="button" class="btn btn-primary" id="type-money-btn">Money</button>
+          <button type="button" class="btn btn-outline" id="type-item-btn">Items</button>
+        </div>
+
+        <form id="donate-form" class="card" style="max-width: 560px;">
+          <div class="form-group">
+            <label for="institutionId">Institution</label>
+            <select id="institutionId" required></select>
+          </div>
+
+          <div class="form-group">
+            <label for="needId">Link to a specific need (optional)</label>
+            <select id="needId">
+              <option value="">— General donation, not tied to a specific need —</option>
+            </select>
+          </div>
+
+          <div id="money-fields">
+            <div class="form-group">
+              <label for="amount">Amount (₹)</label>
+              <input type="number" id="amount" min="1" step="0.01" />
+            </div>
+          </div>
+
+          <div id="item-fields" style="display: none;">
+            <div class="form-group">
+              <label for="itemName">Item name</label>
+              <input type="text" id="itemName" placeholder="e.g. Rice bags" />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="quantity">Quantity</label>
+                <input type="number" id="quantity" min="1" />
+              </div>
+              <div class="form-group">
+                <label for="pickupOrDrop">How will it get there?</label>
+                <select id="pickupOrDrop">
+                  <option value="DROP_OFF">I'll drop it off</option>
+                  <option value="PICKUP">Institution should pick it up</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" id="pickup-address-group" style="display: none;">
+              <label for="pickupAddress">Pickup address</label>
+              <input type="text" id="pickupAddress" placeholder="Where should it be picked up from?" />
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="submit-btn">Donate</button>
+        </form>
+      `;
+
+      // --- Populate institution dropdown ---
+      const institutionSelect = document.getElementById("institutionId");
+      institutions.forEach((inst) => {
+        const opt = document.createElement("option");
+        opt.value = inst.institutionId;
+        opt.textContent = `${inst.institutionName} (${inst.city})`;
+        institutionSelect.appendChild(opt);
+      });
+      if (presetInstitutionId) {
+        institutionSelect.value = String(presetInstitutionId);
+      }
+
+      // --- Populate needs dropdown for the selected institution ---
+      const needSelect = document.getElementById("needId");
+
+      async function loadNeedsForInstitution(institutionId) {
+        needSelect.innerHTML = `<option value="">— General donation, not tied to a specific need —</option>`;
+        if (!institutionId) return;
+        try {
+          const needs = await Api.needs.listByInstitution(institutionId);
+          needs
+            .filter((n) => n.status !== "FULFILLED")
+            .forEach((n) => {
+              const opt = document.createElement("option");
+              opt.value = n.needId;
+              opt.textContent = `${n.itemName} (${n.quantityReceived}/${n.quantityRequired} received, ${n.urgency})`;
+              needSelect.appendChild(opt);
+            });
+        } catch (err) {
+          console.warn("Could not load needs for this institution:", err);
+        }
+      }
+
+      institutionSelect.addEventListener("change", () => {
+        loadNeedsForInstitution(institutionSelect.value);
+      });
+
+      await loadNeedsForInstitution(institutionSelect.value);
+      if (presetNeedId) {
+        needSelect.value = String(presetNeedId);
+      }
+
+      // --- Donation type toggle ---
+      let donationType = "MONEY";
+      const moneyBtn = document.getElementById("type-money-btn");
+      const itemBtn = document.getElementById("type-item-btn");
+      const moneyFields = document.getElementById("money-fields");
+      const itemFields = document.getElementById("item-fields");
+
+      function setType(type) {
+        donationType = type;
+        const isMoney = type === "MONEY";
+        moneyFields.style.display = isMoney ? "block" : "none";
+        itemFields.style.display = isMoney ? "none" : "block";
+        moneyBtn.className = isMoney ? "btn btn-primary" : "btn btn-outline";
+        itemBtn.className = isMoney ? "btn btn-outline" : "btn btn-primary";
+      }
+      moneyBtn.addEventListener("click", () => setType("MONEY"));
+      itemBtn.addEventListener("click", () => setType("ITEM"));
+
+      // --- Pickup address visibility ---
+      const pickupOrDropSelect = document.getElementById("pickupOrDrop");
+      const pickupAddressGroup = document.getElementById("pickup-address-group");
+      pickupOrDropSelect.addEventListener("change", () => {
+        pickupAddressGroup.style.display = pickupOrDropSelect.value === "PICKUP" ? "block" : "none";
+      });
+
+      // --- Submit ---
+      document.getElementById("donate-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const submitBtn = document.getElementById("submit-btn");
+        const institutionId = Number(institutionSelect.value);
+        const needIdRaw = needSelect.value;
+        const needId = needIdRaw ? Number(needIdRaw) : null;
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Submitting...";
+
+        try {
+          if (donationType === "MONEY") {
+            const amount = Number(document.getElementById("amount").value);
+            if (!amount || amount <= 0) {
+              throw new Error("Enter an amount greater than 0.");
+            }
+            await Api.donations.create({
+              donorId: user.userId,
+              institutionId,
+              needId,
+              amount,
+            });
+          } else {
+            const itemName = document.getElementById("itemName").value.trim();
+            const quantity = Number(document.getElementById("quantity").value);
+            const pickupOrDrop = pickupOrDropSelect.value;
+            const pickupAddress = document.getElementById("pickupAddress").value.trim();
+
+            if (!itemName) throw new Error("Enter an item name.");
+            if (!quantity || quantity <= 0) throw new Error("Enter a quantity greater than 0.");
+            if (pickupOrDrop === "PICKUP" && !pickupAddress) {
+              throw new Error("Enter a pickup address, or switch to drop-off.");
+            }
+
+            await Api.itemDonations.create({
+              donorId: user.userId,
+              institutionId,
+              needId,
+              itemName,
+              quantity,
+              pickupOrDrop,
+              pickupAddress: pickupOrDrop === "PICKUP" ? pickupAddress : null,
+            });
+          }
+
+          UiHelpers.toast("Thank you! Your donation was recorded.", "success");
+          window.location.href = "my-donations.html";
+        } catch (err) {
+          console.error(err);
+          UiHelpers.toast(err.message || "Could not submit donation.", "error");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Donate";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

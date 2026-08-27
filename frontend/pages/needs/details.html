@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Need details — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Need details</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div id="content-slot">
+      <p>Loading...</p>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      // Viewing a need's details does not require login.
+      await UiHelpers.bootPage({ rootPath: "../../" });
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
+
+      const contentSlot = document.getElementById("content-slot");
+      const params = new URLSearchParams(window.location.search);
+      const needId = params.get("id");
+
+      if (!needId) {
+        contentSlot.innerHTML = `<p>No need specified in the URL.</p>`;
+        return;
+      }
+
+      try {
+        const need = await Api.needs.getById(needId);
+        const pct = need.quantityRequired > 0
+          ? Math.min(100, Math.round((need.quantityReceived / need.quantityRequired) * 100))
+          : 0;
+
+        let institutionName = `Institution #${need.institutionId}`;
+        try {
+          const inst = await Api.institutions.getById(need.institutionId);
+          institutionName = inst.institutionName;
+        } catch (e) {
+          console.warn("Could not load institution name:", e);
+        }
+
+        contentSlot.innerHTML = `
+          <div class="card" style="max-width: 560px;">
+            <div class="need-card-top">
+              <div>
+                <h2 style="margin: 0 0 4px;">${need.itemName}</h2>
+                <p class="text-small" style="margin:0;">${need.category} · needed by ${institutionName}</p>
+              </div>
+              <span class="urgency-pill urgency-${need.urgency}">${need.urgency}</span>
+            </div>
+
+            <p style="margin-top: 16px;">${need.description || ""}</p>
+
+            <div>
+              <div class="need-progress-track">
+                <div class="need-progress-fill" style="width:${pct}%;"></div>
+              </div>
+              <div class="need-progress-label">
+                ${need.quantityReceived} / ${need.quantityRequired} received · ${need.status.replace("_", " ")}
+              </div>
+            </div>
+
+            <div class="need-card-actions" style="margin-top: 16px;">
+              <a class="btn btn-primary" href="../donations/donate.html?needId=${need.needId}">Donate to this need</a>
+              <a class="btn btn-outline btn-sm" href="list.html?institutionId=${need.institutionId}">See all needs from ${institutionName}</a>
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        console.error(err);
+        contentSlot.innerHTML = `<p>Could not load this need. ${err.message || ""}</p>`;
+      }
+    })();
+  </script>
+</body>
+</html>
