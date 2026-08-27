@@ -22,7 +22,7 @@
 // endpoints already verified directly from the backend source code.
 // ============================================================
 
-const API_BASE_URL = "http://localhost:8080/careconnect/api";
+const API_BASE_URL = "http://localhost:8080/api";
 // ^ Adjust this ONE line once the backend is actually deployed.
 //   "careconnect" is a guess at the Tomcat context path based on the
 //   project name - confirm the real path with Member 1 and update here.
