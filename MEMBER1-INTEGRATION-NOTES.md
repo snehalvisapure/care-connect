@@ -19,7 +19,7 @@ they already work and are reused as-is.
 ## How to apply
 
 1. Copy each file into your real project at the matching path under
-   `backend/src/main/java/com/careconnect/...` (or `webapp/` for `index.html`).
+   `backend/src/main/java/com/careconnect/...` (or `webapp/` for `index_old.html`).
 2. `mvn clean package` (or `mvn tomcat7:run` for local testing, since your
    `pom.xml` already has the plugin configured).
 3. Test: `POST http://localhost:8080/api/auth/register` with body

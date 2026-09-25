@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Institution dashboard — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Institution dashboard</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div id="content-slot">
+      <p>Loading...</p>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
+
+      const contentSlot = document.getElementById("content-slot");
+
+      function statusPillClass(status) {
+        if (status === "APPROVED") return "status-pill-approved";
+        if (status === "REJECTED") return "status-pill-rejected";
+        return "status-pill-pending";
+      }
+
+      function money(value) {
+        const n = Number(value || 0);
+        return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+      }
+
+      // The dashboard needs an institutionId. Prefer ?id= in the URL
+      // (e.g. arriving from the profile page); fall back to looking up
+      // the current user's own institution if no id was given.
+      const params = new URLSearchParams(window.location.search);
+      let institutionId = params.get("id");
+
+      try {
+        if (!institutionId) {
+          const own = await Api.institutions.getByUserId(user.userId);
+          if (!own) {
+            contentSlot.innerHTML = "";
+            const empty = document.createElement("div");
+            empty.className = "card empty-state";
+            empty.innerHTML = `
+              <h3>No institution registered yet</h3>
+              <p>Register your institution to see a dashboard.</p>
+            `;
+            const link = document.createElement("a");
+            link.className = "btn btn-primary";
+            link.href = "register.html";
+            link.textContent = "Register an institution";
+            empty.appendChild(link);
+            contentSlot.appendChild(empty);
+            return;
+          }
+          institutionId = own.institutionId;
+        }
+
+        const dashboard = await Api.institutions.getDashboard(institutionId);
+        const inst = dashboard.institution;
+
+        contentSlot.innerHTML = `
+          <div class="page-header">
+            <h2 style="margin: 0;">${inst.institutionName}</h2>
+            <span class="status-pill ${statusPillClass(inst.verificationStatus)}">
+              ${inst.verificationStatus}
+            </span>
+          </div>
+          <p class="text-small">${inst.city}, ${inst.state} · ${inst.institutionType.replace("_", " ")}</p>
+
+          <h3 style="margin-top: 28px;">Needs</h3>
+          <div class="stat-grid">
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.totalNeeds}</span>
+              <span class="stat-label">Total needs</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.openNeeds}</span>
+              <span class="stat-label">Open</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.partiallyFulfilledNeeds}</span>
+              <span class="stat-label">Partially fulfilled</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.fulfilledNeeds}</span>
+              <span class="stat-label">Fulfilled</span>
+            </div>
+          </div>
+
+          <h3>Monetary donations</h3>
+          <div class="stat-grid">
+            <div class="stat-card">
+              <span class="stat-value">${money(dashboard.totalMonetaryRaised)}</span>
+              <span class="stat-label">Total raised</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.pendingMonetaryPledges}</span>
+              <span class="stat-label">Pending pledges</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.completedMonetaryDonations}</span>
+              <span class="stat-label">Completed</span>
+            </div>
+          </div>
+
+          <h3>In-kind donations</h3>
+          <div class="stat-grid">
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.totalItemDonations}</span>
+              <span class="stat-label">Total</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.pendingItemDonations}</span>
+              <span class="stat-label">Pending</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.deliveredItemDonations}</span>
+              <span class="stat-label">Delivered</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.cancelledItemDonations}</span>
+              <span class="stat-label">Cancelled</span>
+            </div>
+          </div>
+
+          <h3>Verification</h3>
+          <div class="stat-grid">
+            <div class="stat-card">
+              <span class="stat-value">${dashboard.verificationDocumentsCount}</span>
+              <span class="stat-label">Documents uploaded</span>
+            </div>
+          </div>
+
+          <div style="margin-top: 24px; display: flex; gap: 12px; flex-wrap: wrap;">
+            <a class="btn btn-outline btn-sm" href="profile.html">Edit institution profile</a>
+            <a class="btn btn-outline btn-sm" href="../needs/list.html?institutionId=${inst.institutionId}">Manage needs</a>
+            <a class="btn btn-outline btn-sm" href="documents.html?id=${inst.institutionId}">Manage documents</a>
+            <a class="btn btn-outline btn-sm" href="../donations/received.html?id=${inst.institutionId}">Donations received</a>
+            <a class="btn btn-outline btn-sm" href="../volunteers/manage.html?institutionId=${inst.institutionId}">Manage volunteers</a>
+            <a class="btn btn-outline btn-sm" href="../events/manage.html?institutionId=${inst.institutionId}">Manage events</a>
+          </div>
+        `;
+      } catch (err) {
+        console.error(err);
+        contentSlot.innerHTML = `<p>Could not load the dashboard. ${err.message || ""}</p>`;
+      }
+    })();
+  </script>
+</body>
+</html>
