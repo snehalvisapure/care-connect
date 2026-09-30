@@ -46,6 +46,22 @@
       const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
       if (!user) return;
 
+      const contentSlot = document.getElementById("content-slot");
+
+      // Only DONOR accounts should be able to donate. Login alone isn't
+      // enough - an institution or volunteer being logged in shouldn't
+      // land on a working donation form.
+      if (user.role !== "DONOR") {
+        document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
+        contentSlot.innerHTML = `
+          <div class="card empty-state">
+            <h3>This page is for donors only</h3>
+            <p>You're logged in as a ${user.role}, which can't make a donation here.</p>
+          </div>
+        `;
+        return;
+      }
+
       document.getElementById("api-badge").appendChild(UiHelpers.badge("unenforced"));
 
       const notice = document.getElementById("notice-slot");
@@ -60,7 +76,6 @@
       `;
       notice.appendChild(warn);
 
-      const contentSlot = document.getElementById("content-slot");
       const params = new URLSearchParams(window.location.search);
       const presetNeedId = params.get("needId");
       let presetInstitutionId = params.get("institutionId");

@@ -50,11 +50,29 @@
   <!-- /Shared scripts -->
 
   <script>
+    // Where to send someone after a successful login.
+    // Priority: an explicit ?redirect= param (e.g. sent here by
+    // institution-dashboard.html when it bounces a logged-out visitor),
+    // otherwise a sensible default based on their role.
+    function destinationFor(user) {
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get("redirect");
+      if (redirect) {
+        // redirect is an absolute-from-root path like "/institution-dashboard.html"
+        // login.html lives at pages/auth/, so go up two levels to reach root.
+        return "../../" + redirect.replace(/^\/+/, "");
+      }
+      if (user && user.role === "INSTITUTION") {
+        return "../../institution-dashboard.html";
+      }
+      return "profile.html";
+    }
+
     (async () => {
       const user = await UiHelpers.bootPage({ rootPath: "../../" });
       // Already logged in? No reason to show a login form.
       if (user) {
-        window.location.href = "profile.html";
+        window.location.href = destinationFor(user);
         return;
       }
 
@@ -73,9 +91,9 @@
         submitBtn.textContent = "Logging in...";
 
         try {
-          await Session.login(email, password);
+          const loggedInUser = await Session.login(email, password);
           UiHelpers.toast("Logged in.", "success");
-          window.location.href = "profile.html";
+          window.location.href = destinationFor(loggedInUser);
         } catch (err) {
           console.error(err);
           // ApiError.message is the backend's actual error text, e.g.
