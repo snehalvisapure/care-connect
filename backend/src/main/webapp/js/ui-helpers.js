@@ -150,12 +150,20 @@ const UiHelpers = (() => {
     // open pages/admin/dashboard.html; the page itself re-checks the
     // role and blocks rendering if it doesn't match.
     const adminLink = user.role === "ADMIN"
-      ? `<a class="btn btn-outline btn-sm" href="${rootPath}pages/admin/dashboard.html">Admin</a>`
-      : "";
+        ? `<a class="btn btn-outline btn-sm" href="${rootPath}pages/admin/dashboard.html">Admin</a>`
+        : "";
+
+    // Institution Dashboard link, same pattern as the Admin link above:
+    // client-side convenience only, shown for INSTITUTION-role users so
+    // they can get back to their dashboard from anywhere on the site.
+    const institutionLink = user.role === "INSTITUTION"
+        ? `<a class="btn btn-outline btn-sm" href="${rootPath}institution-dashboard.html">Institution Dashboard</a>`
+        : "";
 
     slot.innerHTML = `
       <span class="header-greeting">Hi, ${user.fullName} <span class="text-small">(${user.role})</span></span>
       ${adminLink}
+      ${institutionLink}
       <a class="btn btn-outline btn-sm" href="${rootPath}pages/auth/profile.html">Profile</a>
       <button type="button" class="btn btn-primary btn-sm" id="header-logout-btn">Log out</button>
     `;
@@ -194,7 +202,11 @@ const UiHelpers = (() => {
 
     if (requireAuth && !user) {
       const target = loginPath || `${rootPath}pages/auth/login.html`;
-      window.location.href = target;
+      // Remember where we were, so login.html can send the person right
+      // back here (e.g. back to a donation form with their need still
+      // selected) instead of dropping them on a generic profile page.
+      const returnTo = window.location.pathname + window.location.search;
+      window.location.href = `${target}?redirect=${encodeURIComponent(returnTo)}`;
       return null;
     }
 

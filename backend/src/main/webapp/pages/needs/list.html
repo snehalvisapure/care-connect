@@ -6,192 +6,288 @@
   <title>Needs — CareConnect</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link
-    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-    rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+          rel="stylesheet"
   />
   <link rel="stylesheet" href="../../css/style.css" />
   <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
 </head>
 <body>
-  <div id="header-slot"></div>
+<div id="header-slot"></div>
 
-  <main class="container page-section">
-    <div class="page-header">
-      <h1>Needs</h1>
-      <span id="api-badge"></span>
+<main class="container page-section">
+  <div class="page-header">
+    <h1>Needs</h1>
+    <span id="api-badge"></span>
+  </div>
+
+  <div id="filter-bar" class="card" style="margin-bottom: 20px; display: none;">
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+      <div>
+        <label class="text-small" for="filter-category">Category</label><br>
+        <select id="filter-category">
+          <option value="">All categories</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-small" for="filter-urgency">Urgency</label><br>
+        <select id="filter-urgency">
+          <option value="">All urgencies</option>
+          <option value="LOW">Low</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="HIGH">High</option>
+          <option value="CRITICAL">Critical</option>
+        </select>
+      </div>
+      <button type="button" class="btn btn-outline btn-sm" id="clear-filters-btn">Clear filters</button>
     </div>
+  </div>
 
-    <div id="content-slot">
-      <p>Loading...</p>
-    </div>
-  </main>
+  <div id="content-slot">
+    <p>Loading...</p>
+  </div>
+</main>
 
-  <div id="footer-slot"></div>
+<div id="footer-slot"></div>
 
-  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
-  <script src="../../js/api.js"></script>
-  <script src="../../js/session.js"></script>
-  <script src="../../js/ui-helpers.js"></script>
-  <!-- /Shared scripts -->
+<!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+<script src="../../js/api.js"></script>
+<script src="../../js/session.js"></script>
+<script src="../../js/ui-helpers.js"></script>
+<!-- /Shared scripts -->
 
-  <script>
-    (async () => {
-      // Viewing needs does NOT require login - only creating/editing
-      // does. So we don't pass requireAuth here.
-      const user = await UiHelpers.bootPage({ rootPath: "../../" });
+<script>
+  (async () => {
+    // Viewing needs does NOT require login - only creating/editing does.
+    const user = await UiHelpers.bootPage({ rootPath: "../../" });
 
-      document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
+    document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
 
-      const contentSlot = document.getElementById("content-slot");
-      const params = new URLSearchParams(window.location.search);
-      let institutionId = params.get("institutionId");
+    const contentSlot = document.getElementById("content-slot");
+    const params = new URLSearchParams(window.location.search);
+    const institutionIdParam = params.get("institutionId");
 
-      // The backend requires an institutionId to list needs - there is
-      // no "browse every need across every institution" endpoint on
-      // this controller (that's the Search module, not built yet).
-      // If we weren't given one, fall back to the logged-in user's own
-      // institution if they have one.
-      if (!institutionId && user) {
-        try {
-          const own = await Api.institutions.getByUserId(user.userId);
-          if (own) institutionId = own.institutionId;
-        } catch (err) {
-          console.warn("Could not check for an own institution:", err);
-        }
+    // Cache of institutionId -> institutionName, filled lazily so
+    // browse-all mode doesn't re-fetch the same institution repeatedly.
+    const institutionNameCache = {};
+    async function institutionNameFor(institutionId) {
+      if (institutionNameCache[institutionId]) return institutionNameCache[institutionId];
+      try {
+        const inst = await Api.institutions.getById(institutionId);
+        institutionNameCache[institutionId] = inst.institutionName;
+      } catch (e) {
+        institutionNameCache[institutionId] = `Institution #${institutionId}`;
+      }
+      return institutionNameCache[institutionId];
+    }
+
+    async function isOwnerOf(instId) {
+      if (!user) return false;
+      try {
+        const own = await Api.institutions.getByUserId(user.userId);
+        return own && String(own.institutionId) === String(instId);
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function renderNeedCard(need, institutionName, isOwner) {
+      const pct = need.quantityRequired > 0
+              ? Math.min(100, Math.round((need.quantityReceived / need.quantityRequired) * 100))
+              : 0;
+
+      const card = document.createElement("div");
+      card.className = "need-card";
+      card.innerHTML = `
+          <div class="need-card-top">
+            <div>
+              <strong>${need.itemName}</strong>
+              <div class="text-small">${need.category}${institutionName ? " · " + institutionName : ""}</div>
+            </div>
+            <span class="urgency-pill urgency-${need.urgency}">${need.urgency}</span>
+          </div>
+          <p class="text-small" style="margin: 0;">${need.description || ""}</p>
+          <div>
+            <div class="need-progress-track">
+              <div class="need-progress-fill" style="width:${pct}%;"></div>
+            </div>
+            <div class="need-progress-label">${need.quantityReceived} / ${need.quantityRequired} received · ${need.status.replace("_", " ")}</div>
+          </div>
+          <div class="need-card-actions"></div>
+        `;
+
+      const actions = card.querySelector(".need-card-actions");
+
+      const detailsLink = document.createElement("a");
+      detailsLink.className = "btn btn-outline btn-sm";
+      detailsLink.href = `details.html?id=${need.needId}`;
+      detailsLink.textContent = "Details";
+      actions.appendChild(detailsLink);
+
+      const donateLink = document.createElement("a");
+      donateLink.className = "btn btn-primary btn-sm";
+      donateLink.href = `../donations/donate.html?needId=${need.needId}`;
+      donateLink.textContent = "Donate";
+      actions.appendChild(donateLink);
+
+      if (isOwner) {
+        const editLink = document.createElement("a");
+        editLink.className = "btn btn-outline btn-sm";
+        editLink.href = `edit.html?id=${need.needId}`;
+        editLink.textContent = "Edit";
+        actions.appendChild(editLink);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn btn-outline btn-sm";
+        deleteBtn.type = "button";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.addEventListener("click", async () => {
+          if (!confirm(`Delete "${need.itemName}"? This can't be undone.`)) return;
+          try {
+            await Api.needs.remove(need.needId);
+            UiHelpers.toast("Need deleted.", "success");
+            renderMode();
+          } catch (err) {
+            console.error(err);
+            UiHelpers.toast(err.message || "Could not delete need.", "error");
+          }
+        });
+        actions.appendChild(deleteBtn);
       }
 
-      if (!institutionId) {
-        contentSlot.innerHTML = "";
-        const notice = document.createElement("div");
-        notice.className = "pending-banner";
-        notice.innerHTML = `
-          <strong>⏳ Browsing needs across all institutions isn't built yet</strong>
-          <p>
-            That will be part of the Search module. For now, view a
-            specific institution's needs by visiting this page with
-            <code>?institutionId=</code> in the URL, or register and log in
-            as an institution to see your own needs.
-          </p>
-        `;
-        contentSlot.appendChild(notice);
+      return card;
+    }
+
+    // ---------- MODE 1: a specific institution's needs (owner-manageable) ----------
+    async function loadForInstitution(institutionId) {
+      let needs;
+      try {
+        needs = await Api.needs.listByInstitution(institutionId);
+      } catch (err) {
+        console.error(err);
+        contentSlot.innerHTML = `<p>Could not load needs. ${err.message || ""}</p>`;
         return;
       }
 
-      const isOwner = user && (await isOwnerOf(institutionId));
+      const isOwner = await isOwnerOf(institutionId);
+      const institutionName = await institutionNameFor(institutionId);
 
-      async function isOwnerOf(instId) {
-        try {
-          const own = await Api.institutions.getByUserId(user.userId);
-          return own && String(own.institutionId) === String(instId);
-        } catch (e) {
-          return false;
-        }
+      contentSlot.innerHTML = "";
+      const header = document.createElement("div");
+      header.className = "page-header";
+      header.innerHTML = `<h3 style="margin:0;">${institutionName} — ${needs.length} need${needs.length === 1 ? "" : "s"}</h3>`;
+      if (isOwner) {
+        const addLink = document.createElement("a");
+        addLink.className = "btn btn-primary btn-sm";
+        addLink.href = `create.html?institutionId=${institutionId}`;
+        addLink.textContent = "Add a need";
+        header.appendChild(addLink);
+        header.appendChild(UiHelpers.badge("unenforced"));
+      }
+      contentSlot.appendChild(header);
+
+      const backLink = document.createElement("a");
+      backLink.className = "btn btn-outline btn-sm";
+      backLink.href = "list.html";
+      backLink.textContent = "← Browse needs from all institutions";
+      backLink.style.marginBottom = "16px";
+      contentSlot.appendChild(backLink);
+
+      if (needs.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "card empty-state";
+        empty.textContent = "No needs posted yet.";
+        contentSlot.appendChild(empty);
+        return;
       }
 
-      async function loadNeeds() {
-        let needs;
-        try {
-          needs = await Api.needs.listByInstitution(institutionId);
-        } catch (err) {
-          console.error(err);
-          contentSlot.innerHTML = `<p>Could not load needs. ${err.message || ""}</p>`;
-          return;
-        }
+      const grid = document.createElement("div");
+      grid.className = "need-grid";
+      needs.forEach((need) => grid.appendChild(renderNeedCard(need, null, isOwner)));
+      contentSlot.appendChild(grid);
+    }
 
-        contentSlot.innerHTML = "";
+    // ---------- MODE 2: browse needs across ALL institutions (default) ----------
+    let categoriesPopulated = false;
 
-        const header = document.createElement("div");
-        header.className = "page-header";
-        header.innerHTML = `<h3 style="margin:0;">${needs.length} need${needs.length === 1 ? "" : "s"}</h3>`;
-        if (isOwner) {
-          const addLink = document.createElement("a");
-          addLink.className = "btn btn-primary btn-sm";
-          addLink.href = `create.html?institutionId=${institutionId}`;
-          addLink.textContent = "Add a need";
-          header.appendChild(addLink);
-        }
-        if (isOwner) {
-          header.appendChild(UiHelpers.badge("unenforced"));
-        }
-        contentSlot.appendChild(header);
+    async function loadBrowseAll() {
+      document.getElementById("filter-bar").style.display = "block";
 
-        if (needs.length === 0) {
-          const empty = document.createElement("div");
-          empty.className = "card empty-state";
-          empty.textContent = "No needs posted yet.";
-          contentSlot.appendChild(empty);
-          return;
-        }
+      const category = document.getElementById("filter-category").value || undefined;
+      const urgency = document.getElementById("filter-urgency").value || undefined;
 
-        const grid = document.createElement("div");
-        grid.className = "need-grid";
+      let needs;
+      try {
+        needs = await Api.search.needs({ category, urgency });
+      } catch (err) {
+        console.error(err);
+        contentSlot.innerHTML = `<p>Could not load needs. ${err.message || ""}</p>`;
+        return;
+      }
 
-        needs.forEach((need) => {
-          const pct = need.quantityRequired > 0
-            ? Math.min(100, Math.round((need.quantityReceived / need.quantityRequired) * 100))
-            : 0;
-
-          const card = document.createElement("div");
-          card.className = "need-card";
-          card.innerHTML = `
-            <div class="need-card-top">
-              <div>
-                <strong>${need.itemName}</strong>
-                <div class="text-small">${need.category}</div>
-              </div>
-              <span class="urgency-pill urgency-${need.urgency}">${need.urgency}</span>
-            </div>
-            <p class="text-small" style="margin: 0;">${need.description || ""}</p>
-            <div>
-              <div class="need-progress-track">
-                <div class="need-progress-fill" style="width:${pct}%;"></div>
-              </div>
-              <div class="need-progress-label">${need.quantityReceived} / ${need.quantityRequired} received · ${need.status.replace("_", " ")}</div>
-            </div>
-            <div class="need-card-actions"></div>
-          `;
-
-          const actions = card.querySelector(".need-card-actions");
-
-          const detailsLink = document.createElement("a");
-          detailsLink.className = "btn btn-outline btn-sm";
-          detailsLink.href = `details.html?id=${need.needId}`;
-          detailsLink.textContent = "Details";
-          actions.appendChild(detailsLink);
-
-          if (isOwner) {
-            const editLink = document.createElement("a");
-            editLink.className = "btn btn-outline btn-sm";
-            editLink.href = `edit.html?id=${need.needId}`;
-            editLink.textContent = "Edit";
-            actions.appendChild(editLink);
-
-            const deleteBtn = document.createElement("button");
-            deleteBtn.className = "btn btn-outline btn-sm";
-            deleteBtn.type = "button";
-            deleteBtn.textContent = "Delete";
-            deleteBtn.addEventListener("click", async () => {
-              if (!confirm(`Delete "${need.itemName}"? This can't be undone.`)) return;
-              try {
-                await Api.needs.remove(need.needId);
-                UiHelpers.toast("Need deleted.", "success");
-                loadNeeds();
-              } catch (err) {
-                console.error(err);
-                UiHelpers.toast(err.message || "Could not delete need.", "error");
-              }
-            });
-            actions.appendChild(deleteBtn);
-          }
-
-          grid.appendChild(card);
+      // Populate the category filter's options from whatever categories
+      // actually appear, the first time we successfully load unfiltered.
+      if (!categoriesPopulated && !category && !urgency) {
+        const categories = [...new Set(needs.map((n) => n.category))].sort();
+        const select = document.getElementById("filter-category");
+        categories.forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = c;
+          opt.textContent = c;
+          select.appendChild(opt);
         });
-
-        contentSlot.appendChild(grid);
+        categoriesPopulated = true;
       }
 
-      await loadNeeds();
-    })();
-  </script>
+      contentSlot.innerHTML = "";
+      const header = document.createElement("div");
+      header.className = "page-header";
+      header.innerHTML = `<h3 style="margin:0;">${needs.length} need${needs.length === 1 ? "" : "s"} across all institutions</h3>`;
+      contentSlot.appendChild(header);
+
+      if (needs.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "card empty-state";
+        empty.textContent = "No needs match these filters right now.";
+        contentSlot.appendChild(empty);
+        return;
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "need-grid";
+      contentSlot.appendChild(grid);
+
+      // Render immediately with placeholder institution names, then fill
+      // in the real names as they resolve (avoids blocking the whole
+      // list on every institution lookup finishing first).
+      for (const need of needs) {
+        const card = renderNeedCard(need, `Institution #${need.institutionId}`, false);
+        grid.appendChild(card);
+        institutionNameFor(need.institutionId).then((name) => {
+          const label = card.querySelector(".text-small");
+          if (label) label.textContent = `${need.category} · ${name}`;
+        });
+      }
+    }
+
+    async function renderMode() {
+      if (institutionIdParam) {
+        await loadForInstitution(institutionIdParam);
+      } else {
+        await loadBrowseAll();
+      }
+    }
+
+    document.getElementById("filter-category").addEventListener("change", renderMode);
+    document.getElementById("filter-urgency").addEventListener("change", renderMode);
+    document.getElementById("clear-filters-btn").addEventListener("click", () => {
+      document.getElementById("filter-category").value = "";
+      document.getElementById("filter-urgency").value = "";
+      renderMode();
+    });
+
+    await renderMode();
+  })();
+</script>
 </body>
 </html>
