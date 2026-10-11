@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Donate to a Need — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+          href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+          rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+<div id="header-slot"></div>
+
+<main class="container page-section">
+  <div class="page-header">
+    <h1>Donate to a need</h1>
+  </div>
+  <div id="content-slot"><p>Loading...</p></div>
+</main>
+
+<div id="footer-slot"></div>
+
+<script src="../../js/api.js"></script>
+<script src="../../js/session.js"></script>
+<script src="../../js/ui-helpers.js"></script>
+
+<script>
+  (async () => {
+    const user = await UiHelpers.bootPage({ rootPath: "../../" });
+    const slot = document.getElementById("content-slot");
+
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+
+    const needId = new URLSearchParams(window.location.search).get("needId");
+    if (!needId) {
+      slot.innerHTML = `<div class="card empty-state">No need selected. <a href="../needs/list.html">Browse needs</a></div>`;
+      return;
+    }
+
+    // ---- 1. LOGIN GATE ----
+    // IMPORTANT: redirect target includes location.search, otherwise the
+    // ?needId=... is lost and the user lands on a blank donate page after login.
+    if (!Session.isLoggedIn()) {
+      const back = encodeURIComponent(window.location.pathname + window.location.search);
+      slot.innerHTML = `
+        <div class="card" style="max-width:520px;">
+          <h3 style="margin-top:0;">Please log in to donate</h3>
+          <p class="text-small">You'll come straight back to this need after logging in.</p>
+          <a class="btn btn-primary" href="../auth/login.html?redirect=${back}">Log in</a>
+          <a class="btn btn-outline" href="../auth/register.html?redirect=${back}">Register</a>
+        </div>`;
+      return;
+    }
+    if (Session.getCurrentRole() !== "DONOR") {
+      slot.innerHTML = `<div class="card empty-state">Only donor accounts can donate. You're logged in as ${esc(Session.getCurrentRole())}.</div>`;
+      return;
+    }
+
+    // ---- 2. LOAD THE NEED + INSTITUTION ----
+    let need, institution;
+    try {
+      need = await Api.needs.getById(needId);
+      institution = await Api.institutions.getById(need.institutionId);
+    } catch (err) {
+      slot.innerHTML = `<div class="card empty-state">Could not load this need. ${esc(err.message)}</div>`;
+      return;
+    }
+
+    const remaining = Math.max(0, need.quantityRequired - need.quantityReceived);
+    if (need.status === "FULFILLED" || remaining === 0) {
+      slot.innerHTML = `<div class="card empty-state">This need has already been fulfilled. Thank you!
+        <br><a href="../needs/list.html">Browse other needs</a></div>`;
+      return;
+    }
+
+    // ---- 3. SHOW NEED + FORM ----
+    slot.innerHTML = `
+      <div class="card" style="max-width:640px;">
+        <div class="text-small">${esc(need.category)} · ${esc(need.urgency)} urgency</div>
+        <h2 style="margin:4px 0;">${esc(need.itemName)}</h2>
+        <p style="margin:0 0 4px;">Requested by <strong>${esc(institution.institutionName)}</strong>
+          ${institution.city ? "· " + esc(institution.city) : ""}</p>
+        <p class="text-small" style="margin:0 0 12px;">${esc(need.description || "")}</p>
+        <p class="text-small"><strong>${remaining}</strong> still needed
+          (${need.quantityReceived} / ${need.quantityRequired} received)</p>
+
+        <form id="donate-form" style="display:grid; gap:12px; margin-top:16px;">
+          <div>
+            <label class="text-small" for="qty">How much will you donate?</label><br>
+            <input id="qty" type="number" min="1" max="${remaining}" value="${Math.min(remaining, 1)}" required>
+          </div>
+          <div>
+            <label class="text-small" for="mode">Delivery</label><br>
+            <select id="mode">
+              <option value="DROP_OFF">I'll drop it off at the institution</option>
+              <option value="PICKUP">Please pick it up from me</option>
+            </select>
+          </div>
+          <div id="addr-wrap" style="display:none;">
+            <label class="text-small" for="addr">Pickup address</label><br>
+            <textarea id="addr" rows="2"></textarea>
+          </div>
+          <div class="card" style="background:#FBF8F2;">
+            <strong>Summary</strong>
+            <div id="summary" class="text-small"></div>
+            <div class="text-small" style="margin-top:6px;">
+              ${esc(institution.institutionName)} will review your donation and approve or reject it.
+            </div>
+          </div>
+          <div id="form-error" class="text-small" style="color:#B3452C;"></div>
+          <button type="submit" class="btn btn-primary">Confirm donation</button>
+        </form>
+      </div>`;
+
+    const qty = document.getElementById("qty");
+    const mode = document.getElementById("mode");
+    const addrWrap = document.getElementById("addr-wrap");
+    const summary = document.getElementById("summary");
+
+    function refreshSummary() {
+      summary.textContent = `${qty.value || 0} × ${need.itemName} → ${institution.institutionName}`;
+      addrWrap.style.display = mode.value === "PICKUP" ? "block" : "none";
+    }
+    qty.addEventListener("input", refreshSummary);
+    mode.addEventListener("change", refreshSummary);
+    refreshSummary();
+
+    // ---- 4. SUBMIT ----
+    document.getElementById("donate-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = document.getElementById("form-error");
+      err.textContent = "";
+
+      const quantity = Number(qty.value);
+      if (!quantity || quantity < 1 || quantity > remaining) {
+        err.textContent = `Enter a quantity between 1 and ${remaining}.`;
+        return;
+      }
+      const pickupAddress = document.getElementById("addr").value.trim();
+      if (mode.value === "PICKUP" && !pickupAddress) {
+        err.textContent = "Pickup address is required for pickup.";
+        return;
+      }
+
+      try {
+        await Api.itemDonations.create({
+          donorId: Number(Session.getCurrentUserId()),
+          institutionId: need.institutionId,
+          needId: need.needId,
+          itemName: need.itemName,
+          quantity,
+          pickupOrDrop: mode.value,
+          pickupAddress: mode.value === "PICKUP" ? pickupAddress : null,
+        });
+        slot.innerHTML = `
+          <div class="card" style="max-width:520px;">
+            <h3 style="margin-top:0;">Thank you!</h3>
+            <p>Your donation of <strong>${quantity} × ${esc(need.itemName)}</strong> has been sent to
+              <strong>${esc(institution.institutionName)}</strong>. They will approve or reject it shortly.</p>
+            <a class="btn btn-primary" href="../needs/list.html">Back to needs</a>
+          </div>`;
+      } catch (ex) {
+        err.textContent = ex.message || "Could not submit donation.";
+      }
+    });
+  })();
+</script>
+</body>
+</html>

@@ -27,6 +27,8 @@ import java.util.List;
  *   GET  /api/item-donations?institutionId={id}    -> item donations received by an institution
  *   GET  /api/item-donations/{id}                   -> get one item donation
  *   POST /api/item-donations                         -> create a new item donation
+ *   POST /api/item-donations/{id}/approve            -> institution approves a PENDING donation
+ *   POST /api/item-donations/{id}/reject             -> institution rejects a PENDING donation
  *   POST /api/item-donations/{id}/pickup             -> mark PICKUP-type donation as collected
  *   POST /api/item-donations/{id}/deliver             -> mark delivered (advances the linked need, if any)
  *   POST /api/item-donations/{id}/cancel              -> cancel before delivery
@@ -130,6 +132,16 @@ public class ItemDonationController extends HttpServlet {
                             ? Date.valueOf(body.deliveryDate)
                             : null;
                     ItemDonation updated = itemDonationService.markDelivered(itemDonationId, deliveryDate);
+                    resp.setStatus(HttpServletResponse.SC_OK);
+                    resp.getWriter().write(gson.toJson(updated));
+
+                } else if (segments.length == 2 && segments[1].equals("approve")) {
+                    ItemDonation updated = itemDonationService.approveItemDonation(itemDonationId);
+                    resp.setStatus(HttpServletResponse.SC_OK);
+                    resp.getWriter().write(gson.toJson(updated));
+
+                } else if (segments.length == 2 && segments[1].equals("reject")) {
+                    ItemDonation updated = itemDonationService.rejectItemDonation(itemDonationId);
                     resp.setStatus(HttpServletResponse.SC_OK);
                     resp.getWriter().write(gson.toJson(updated));
 
