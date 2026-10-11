@@ -326,15 +326,24 @@ const Api = {
         body: JSON.stringify(data),
       });
     },
+    // POST /api/item-donations/{id}/approve (no body)
+    // PENDING -> ACCEPTED. Does not change the need's quantityReceived.
+    approve(id) {
+      return apiRequest(`/item-donations/${id}/approve`, { method: "POST" });
+    },
+    // POST /api/item-donations/{id}/reject (no body)
+    // PENDING -> REJECTED.
+    reject(id) {
+      return apiRequest(`/item-donations/${id}/reject`, { method: "POST" });
+    },
     // POST /api/item-donations/{id}/pickup (no body)
-    // PENDING -> PICKED_UP. Only meaningful for pickupOrDrop="PICKUP";
-    // DROP_OFF donations skip straight from PENDING to DELIVERED.
+    // ACCEPTED -> PICKED_UP. Only meaningful for pickupOrDrop="PICKUP".
     markPickedUp(id) {
       return apiRequest(`/item-donations/${id}/pickup`, { method: "POST" });
     },
     // POST /api/item-donations/{id}/deliver   body: { deliveryDate (optional, "yyyy-MM-dd") }
-    // -> DELIVERED. This is the point where, if a needId was attached,
-    //    the linked need's quantityReceived actually advances.
+    // ACCEPTED or PICKED_UP -> DELIVERED. This is the point where, if a needId
+    // was attached, the linked need's quantityReceived actually advances.
     markDelivered(id, deliveryDate = null) {
       return apiRequest(`/item-donations/${id}/deliver`, {
         method: "POST",
@@ -342,7 +351,7 @@ const Api = {
       });
     },
     // POST /api/item-donations/{id}/cancel (no body)
-    // Blocked once the donation is already DELIVERED.
+    // Blocked once the donation is DELIVERED or REJECTED.
     cancel(id) {
       return apiRequest(`/item-donations/${id}/cancel`, { method: "POST" });
     },

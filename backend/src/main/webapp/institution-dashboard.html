@@ -277,10 +277,12 @@
       <div>
         <label>Category</label>
         <select name="category">
+          <option value="BIRTHDAY">Birthday</option>
           <option value="FESTIVAL">Festival</option>
-          <option value="VISIT">Visit</option>
-          <option value="CELEBRATION">Celebration</option>
-          <option value="OTHER">Other</option>
+          <option value="VISITING_DAY">Visiting day</option>
+          <option value="FUNDRAISER">Fundraiser</option>
+          <option value="MEDICAL_CAMP">Medical camp</option>
+          <option value="OTHER" selected>Other</option>
         </select>
       </div>
       <div>
@@ -468,7 +470,7 @@
         <div>
           <label>Category</label>
           <select name="category">
-            ${['FESTIVAL','VISIT','CELEBRATION','OTHER'].map(c =>
+            ${['BIRTHDAY','FESTIVAL','VISITING_DAY','FUNDRAISER','MEDICAL_CAMP','OTHER'].map(c =>
               `<option value="${c}" ${ev.category===c?'selected':''}>${c}</option>`).join('')}
           </select>
         </div>
@@ -758,21 +760,40 @@
     }
   }
 
-  function renderOpportunityCard(opp){
+  function renderItemDonationCard(d){
     const wrap = document.createElement('div');
     wrap.className = 'card';
+    const status = (d.deliveryStatus || 'PENDING').toUpperCase();
+    const pillClass =
+            status === 'DELIVERED' || status === 'ACCEPTED' ? 'pill-accepted' :
+                    status === 'CANCELLED' || status === 'REJECTED' ? 'pill-rejected' :
+                            status === 'PICKED_UP' ? 'pill-completed' : 'pill-pending';
+    const id = d.itemDonationId;
+
+    let buttons = '';
+    if(status === 'PENDING'){
+      buttons += `<button class="btn-accept" onclick="itemDonationAction(${id}, 'approve')">Approve</button>`;
+      buttons += `<button class="btn-reject" onclick="itemDonationAction(${id}, 'reject')">Reject</button>`;
+    }
+    if(status === 'ACCEPTED' && d.pickupOrDrop === 'PICKUP'){
+      buttons += `<button class="btn-gold" onclick="itemDonationAction(${id}, 'markPickedUp')">Mark picked up</button>`;
+    }
+    if(status === 'ACCEPTED' || status === 'PICKED_UP'){
+      buttons += `<button class="btn-accept" onclick="itemDonationAction(${id}, 'markDelivered')">Mark delivered</button>`;
+      buttons += `<button class="btn-danger" onclick="itemDonationAction(${id}, 'cancel')">Cancel</button>`;
+    }
+
     wrap.innerHTML = `
       <div class="card-row">
         <div>
-          <h3>${escapeHtml(opp.title)}</h3>
-          <span class="tag">${escapeHtml(opp.status)}</span>
-          <div class="meta">${escapeHtml(opp.eventDate || '')} ${opp.location ? ' · ' + escapeHtml(opp.location) : ''}</div>
+          <h3>${escapeHtml(d.itemName)} × ${d.quantity} — Item donation</h3>
+          <span class="tag">${escapeHtml(d.pickupOrDrop)}</span>
+          ${d.needId ? `<span class="tag" style="margin-left:6px;">Need #${d.needId}</span>` : ''}
+          <div class="meta">Status: <span class="status-pill ${pillClass}">${status}</span></div>
+          ${d.pickupAddress ? `<div class="meta">Pickup from: ${escapeHtml(d.pickupAddress)}</div>` : ''}
         </div>
-        <div class="actions">
-          <button class="btn-outline" onclick="loadRegistrations(${opp.opportunityId}, this)">View applicants</button>
-        </div>
+        <div class="actions" id="item-donation-actions-${id}">${buttons}</div>
       </div>
-      <div class="rsvp-list" id="regs-${opp.opportunityId}" style="display:none;"></div>
     `;
     return wrap;
   }
@@ -800,9 +821,9 @@
   function renderRegistrationCard(r, opportunityId){
     const wrap = document.createElement('div');
     wrap.className = 'card reg-card';
-    const status = (r.status || 'PENDING').toUpperCase();
+    const status = (r.status || 'APPLIED').toUpperCase();
     const pillClass = {
-      PENDING:'pill-pending', ACCEPTED:'pill-accepted',
+      APPLIED:'pill-pending', ACCEPTED:'pill-accepted',
       REJECTED:'pill-rejected', COMPLETED:'pill-completed'
     }[status] || 'pill-pending';
 
@@ -813,7 +834,7 @@
           <span class="status-pill ${pillClass}">${status}</span>
         </div>
         <div class="actions" id="reg-actions-${r.registrationId}">
-          ${status === 'PENDING' ? `
+          ${status === 'APPLIED' ? `
             <button class="btn-accept" onclick="actOnRegistration(${r.registrationId}, 'accept', ${opportunityId})">Accept</button>
             <button class="btn-reject" onclick="actOnRegistration(${r.registrationId}, 'reject', ${opportunityId})">Reject</button>
           ` : ''}

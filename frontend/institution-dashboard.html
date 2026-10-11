@@ -199,16 +199,67 @@
 <header>
   <div>
     <h1>Institution Dashboard</h1>
-    <p>Manage your events and volunteer requests — CareConnect</p>
+    <p id="header-sub">Manage your events and volunteer requests — CareConnect</p>
   </div>
   <div class="id-box">
-    <span>Institution ID</span>
-    <input id="institutionIdInput" type="number" min="1" placeholder="e.g. 1">
-    <button class="btn-gold" onclick="setInstitutionId()">Load</button>
+    <span id="institution-name-display">Loading…</span>
+    <button class="btn-outline" style="color:var(--cream);border-color:var(--cream);" onclick="doLogout()">Log out</button>
   </div>
 </header>
+<div id="auth-gate" style="display:none; max-width:480px; margin:60px auto; text-align:center;">
+  <h2 id="auth-gate-title">Checking your session…</h2>
+  <p id="auth-gate-msg" style="color:var(--ink-soft);"></p>
+  <a id="auth-gate-link" class="btn btn-primary" style="display:none;" href="pages/auth/login.html">Go to login</a>
+</div>
+<main id="dashboard-main" style="display:none;">
 
-<main>
+  <section id="donations-section">
+    <div class="section-head">
+      <h2>Donations</h2>
+      <span class="status mono" id="donations-status"></span>
+    </div>
+    <div id="donations-list"></div>
+  </section>
+
+  <section id="needs-section">
+    <div class="section-head">
+      <h2>My Needs</h2>
+      <span class="status mono" id="needs-status"></span>
+    </div>
+    <div id="needs-list"></div>
+
+    <h3 style="margin-top:24px;">Post a new need</h3>
+    <form class="inline-form" id="create-need-form" onsubmit="handleCreateNeed(event)">
+      <div>
+        <label>Item name</label>
+        <input name="itemName" required>
+      </div>
+      <div>
+        <label>Category</label>
+        <input name="category" placeholder="e.g. Food, Clothing, Medical" required>
+      </div>
+      <div>
+        <label>Quantity required</label>
+        <input name="quantityRequired" type="number" min="1" required>
+      </div>
+      <div>
+        <label>Urgency</label>
+        <select name="urgency">
+          <option value="LOW">Low</option>
+          <option value="MEDIUM" selected>Medium</option>
+          <option value="HIGH">High</option>
+          <option value="CRITICAL">Critical</option>
+        </select>
+      </div>
+      <div class="full">
+        <label>Description</label>
+        <textarea name="description"></textarea>
+      </div>
+      <div class="full">
+        <button type="submit" class="btn-primary">Post need</button>
+      </div>
+    </form>
+  </section>
 
   <section id="events-section">
     <div class="section-head">
@@ -226,10 +277,12 @@
       <div>
         <label>Category</label>
         <select name="category">
+          <option value="BIRTHDAY">Birthday</option>
           <option value="FESTIVAL">Festival</option>
-          <option value="VISIT">Visit</option>
-          <option value="CELEBRATION">Celebration</option>
-          <option value="OTHER">Other</option>
+          <option value="VISITING_DAY">Visiting day</option>
+          <option value="FUNDRAISER">Fundraiser</option>
+          <option value="MEDICAL_CAMP">Medical camp</option>
+          <option value="OTHER" selected>Other</option>
         </select>
       </div>
       <div>
@@ -254,73 +307,94 @@
     </form>
   </section>
 
-  <section id="registrations-section">
+  <section id="opportunities-section">
     <div class="section-head">
-      <h2>Volunteer Requests</h2>
-      <span class="status mono" id="reg-status"></span>
+      <h2>My Volunteer Opportunities</h2>
+      <span class="status mono" id="opps-status"></span>
     </div>
-    <form class="inline-form" style="grid-template-columns: auto 1fr auto;" onsubmit="loadRegistrations(event)">
-      <div>
-        <label>Opportunity ID</label>
-        <input id="opportunityIdInput" type="number" min="1" required>
-      </div>
-      <div></div>
-      <div style="align-self:end;">
-        <button type="submit" class="btn-outline">Load applicants</button>
-      </div>
-    </form>
-    <div id="registrations-list" style="margin-top:16px;"></div>
+    <div id="opportunities-list"></div>
   </section>
 
 </main>
 
+<script src="js/api.js"></script>
+<script src="js/session.js"></script>
 <script>
-  // Adjust if your webapp is deployed under a context path, e.g. '/CareConnect/api'
-  const API_BASE = '/api';
+  let institutionId = null;
+  let currentUser = null;
 
-  let institutionId = localStorage.getItem('cc_institutionId') || '';
+  // ---------- AUTH GATE ----------
 
-  function setInstitutionId(){
-    const val = document.getElementById('institutionIdInput').value;
-    if(!val) return;
-    institutionId = val;
-    localStorage.setItem('cc_institutionId', val);
-    loadEvents();
-  }
+  async function init(){
+    const gate = document.getElementById('auth-gate');
+    const gateTitle = document.getElementById('auth-gate-title');
+    const gateMsg = document.getElementById('auth-gate-msg');
+    const gateLink = document.getElementById('auth-gate-link');
 
-  window.addEventListener('DOMContentLoaded', () => {
-    if(institutionId){
-      document.getElementById('institutionIdInput').value = institutionId;
+    await Session.refresh();
+
+    if(!Session.isLoggedIn()){
+      gate.style.display = 'block';
+      gateTitle.textContent = 'Please log in';
+      gateMsg.textContent = 'You need to be logged in as an institution to view this dashboard.';
+      gateLink.style.display = 'inline-block';
+      gateLink.href = 'pages/auth/login.html?redirect=' + encodeURIComponent(window.location.pathname);
+      return;
+    }
+
+    if(Session.getCurrentRole() !== 'INSTITUTION'){
+      gate.style.display = 'block';
+      gateTitle.textContent = "This page is for institutions only";
+      gateMsg.textContent = "You're logged in as a " + Session.getCurrentRole() + ", which can't access the institution dashboard.";
+      return;
+    }
+
+    currentUser = Session.getCurrentUser();
+
+    try{
+      const inst = await Api.institutions.getByUserId(Session.getCurrentUserId());
+      if(!inst){
+        gate.style.display = 'block';
+        gateTitle.textContent = 'No institution profile found';
+        gateMsg.textContent = "You're logged in, but haven't registered an institution yet.";
+        gateLink.style.display = 'inline-block';
+        gateLink.textContent = 'Register your institution';
+        gateLink.href = 'pages/institution/register.html';
+        return;
+      }
+      institutionId = inst.institutionId;
+      document.getElementById('institution-name-display').textContent = inst.institutionName;
+      document.getElementById('header-sub').textContent =
+        'Manage your events and volunteer requests — ' + inst.institutionName;
+
+      document.getElementById('dashboard-main').style.display = 'block';
       loadEvents();
-    }
-  });
+      loadDonations();
+      loadNeeds();
+      loadOpportunities();
 
-  async function apiFetch(path, options={}){
-    const res = await fetch(API_BASE + path, {
-      headers: {'Content-Type':'application/json'},
-      ...options
-    });
-    let body = null;
-    try { body = await res.json(); } catch(e) {}
-    if(!res.ok){
-      const msg = (body && body.error) ? body.error : ('Request failed (' + res.status + ')');
-      throw new Error(msg);
+    } catch(err){
+      gate.style.display = 'block';
+      gateTitle.textContent = 'Could not load your institution';
+      gateMsg.textContent = err.message;
     }
-    return body;
   }
+
+  async function doLogout(){
+    await Session.logout();
+    window.location.href = 'careconnect-homepage.html';
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
 
   // ---------- EVENTS ----------
 
   async function loadEvents(){
     const listEl = document.getElementById('events-list');
     const statusEl = document.getElementById('events-status');
-    if(!institutionId){
-      listEl.innerHTML = '<div class="empty">Enter an institution ID above to load events.</div>';
-      return;
-    }
     statusEl.textContent = 'loading…';
     try{
-      const events = await apiFetch('/events?institutionId=' + encodeURIComponent(institutionId));
+      const events = await Api.events.listByInstitution(institutionId);
       statusEl.textContent = events.length + ' event(s)';
       if(events.length === 0){
         listEl.innerHTML = '<div class="empty">No events yet. Create one below.</div>';
@@ -370,8 +444,8 @@
     box.innerHTML = 'loading…';
     try{
       const [rsvps, countRes] = await Promise.all([
-        apiFetch('/rsvps?eventId=' + eventId),
-        apiFetch('/rsvps/count?eventId=' + eventId)
+        Api.rsvps.listByEvent(eventId),
+        Api.rsvps.countGoing(eventId)
       ]);
       if(rsvps.length === 0){
         box.innerHTML = '<div class="empty">No RSVPs yet.</div>';
@@ -396,7 +470,7 @@
         <div>
           <label>Category</label>
           <select name="category">
-            ${['FESTIVAL','VISIT','CELEBRATION','OTHER'].map(c =>
+            ${['BIRTHDAY','FESTIVAL','VISITING_DAY','FUNDRAISER','MEDICAL_CAMP','OTHER'].map(c =>
               `<option value="${c}" ${ev.category===c?'selected':''}>${c}</option>`).join('')}
           </select>
         </div>
@@ -424,7 +498,7 @@
       category: f.category.value
     };
     try{
-      await apiFetch('/events/' + eventId, { method:'PUT', body: JSON.stringify(payload) });
+      await Api.events.update(eventId, payload);
       loadEvents();
     } catch(err){
       alert('Could not save: ' + err.message);
@@ -434,7 +508,7 @@
   async function deleteEvent(eventId){
     if(!confirm('Delete this event? This cannot be undone.')) return;
     try{
-      await apiFetch('/events/' + eventId, { method:'DELETE' });
+      await Api.events.remove(eventId);
       loadEvents();
     } catch(err){
       alert('Could not delete: ' + err.message);
@@ -443,7 +517,6 @@
 
   async function handleCreateEvent(e){
     e.preventDefault();
-    if(!institutionId){ alert('Set an institution ID first.'); return; }
     const f = e.target;
     const payload = {
       institutionId: Number(institutionId),
@@ -455,7 +528,7 @@
       category: f.category.value
     };
     try{
-      await apiFetch('/events', { method:'POST', body: JSON.stringify(payload) });
+      await Api.events.create(payload);
       f.reset();
       loadEvents();
     } catch(err){
@@ -463,37 +536,294 @@
     }
   }
 
-  // ---------- VOLUNTEER REGISTRATIONS (opportunities) ----------
+  // ---------- DONATIONS ----------
 
-  async function loadRegistrations(e){
-    e.preventDefault();
-    const oppId = document.getElementById('opportunityIdInput').value;
-    const listEl = document.getElementById('registrations-list');
-    const statusEl = document.getElementById('reg-status');
+  async function loadDonations(){
+    const listEl = document.getElementById('donations-list');
+    const statusEl = document.getElementById('donations-status');
     statusEl.textContent = 'loading…';
     try{
-      const regs = await apiFetch('/registrations?opportunityId=' + encodeURIComponent(oppId));
-      statusEl.textContent = regs.length + ' applicant(s)';
-      if(regs.length === 0){
-        listEl.innerHTML = '<div class="empty">No applicants for this opportunity yet.</div>';
+      const [money, items] = await Promise.all([
+        Api.donations.listByInstitution(institutionId),
+        Api.itemDonations.listByInstitution(institutionId)
+      ]);
+      const total = money.length + items.length;
+      statusEl.textContent = total + ' donation(s)';
+      if(total === 0){
+        listEl.innerHTML = '<div class="empty">No donations yet.</div>';
         return;
       }
       listEl.innerHTML = '';
-      for(const r of regs){
-        listEl.appendChild(renderRegistrationCard(r));
-      }
+      money.forEach(d => listEl.appendChild(renderMoneyDonationCard(d)));
+      items.forEach(d => listEl.appendChild(renderItemDonationCard(d)));
     } catch(err){
       statusEl.textContent = '';
-      listEl.innerHTML = '<div class="error-msg">' + err.message + '</div>';
+      listEl.innerHTML = '<div class="error-msg">Could not load donations: ' + err.message + '</div>';
     }
   }
 
-  function renderRegistrationCard(r){
+  function renderMoneyDonationCard(d){
+    const wrap = document.createElement('div');
+    wrap.className = 'card';
+    const status = (d.paymentStatus || 'PENDING').toUpperCase();
+    const pillClass = status === 'COMPLETED' ? 'pill-accepted' : status === 'CANCELLED' ? 'pill-rejected' : 'pill-pending';
+    wrap.innerHTML = `
+      <div class="card-row">
+        <div>
+          <h3>₹${d.amount} — Money donation</h3>
+          <span class="tag">Donor #${d.donorId}</span>
+          ${d.needId ? `<span class="tag" style="margin-left:6px;">Need #${d.needId}</span>` : ''}
+          <div class="meta">Payment: <span class="status-pill ${pillClass}">${status}</span></div>
+        </div>
+      </div>
+    `;
+    return wrap;
+  }
+
+  function renderItemDonationCard(d){
+    const wrap = document.createElement('div');
+    wrap.className = 'card';
+    const status = (d.deliveryStatus || 'PENDING').toUpperCase();
+    const pillClass = status === 'DELIVERED' ? 'pill-accepted' : status === 'CANCELLED' ? 'pill-rejected' : status === 'PICKED_UP' ? 'pill-completed' : 'pill-pending';
+    wrap.innerHTML = `
+      <div class="card-row">
+        <div>
+          <h3>${escapeHtml(d.itemName)} × ${d.quantity} — Item donation</h3>
+          <span class="tag">${escapeHtml(d.pickupOrDrop)}</span>
+          ${d.needId ? `<span class="tag" style="margin-left:6px;">Need #${d.needId}</span>` : ''}
+          <div class="meta">Status: <span class="status-pill ${pillClass}">${status}</span></div>
+          ${d.pickupAddress ? `<div class="meta">Pickup from: ${escapeHtml(d.pickupAddress)}</div>` : ''}
+        </div>
+        <div class="actions" id="item-donation-actions-${d.itemDonationId}">
+          ${status === 'PENDING' && d.pickupOrDrop === 'PICKUP' ? `<button class="btn-gold" onclick="itemDonationAction(${d.itemDonationId}, 'markPickedUp')">Mark picked up</button>` : ''}
+          ${(status === 'PENDING' || status === 'PICKED_UP') ? `<button class="btn-accept" onclick="itemDonationAction(${d.itemDonationId}, 'markDelivered')">Mark delivered</button>` : ''}
+          ${status !== 'DELIVERED' && status !== 'CANCELLED' ? `<button class="btn-danger" onclick="itemDonationAction(${d.itemDonationId}, 'cancel')">Cancel</button>` : ''}
+        </div>
+      </div>
+    `;
+    return wrap;
+  }
+
+  async function itemDonationAction(itemDonationId, action){
+    try{
+      await Api.itemDonations[action](itemDonationId);
+      loadDonations();
+      loadNeeds(); // delivering can advance a linked need's progress/status
+    } catch(err){
+      alert('Could not update: ' + err.message);
+    }
+  }
+
+  // ---------- NEEDS ----------
+
+  async function loadNeeds(){
+    const listEl = document.getElementById('needs-list');
+    const statusEl = document.getElementById('needs-status');
+    statusEl.textContent = 'loading…';
+    try{
+      const needs = await Api.needs.listByInstitution(institutionId);
+      statusEl.textContent = needs.length + ' need(s)';
+      if(needs.length === 0){
+        listEl.innerHTML = '<div class="empty">No needs posted yet.</div>';
+        return;
+      }
+      listEl.innerHTML = '';
+      for(const n of needs){
+        listEl.appendChild(renderNeedCard(n));
+      }
+    } catch(err){
+      statusEl.textContent = '';
+      listEl.innerHTML = '<div class="error-msg">Could not load needs: ' + err.message + '</div>';
+    }
+  }
+
+  function renderNeedCard(n){
+    const wrap = document.createElement('div');
+    wrap.className = 'card';
+    const pct = n.quantityRequired > 0
+      ? Math.min(100, Math.round((n.quantityReceived / n.quantityRequired) * 100))
+      : 0;
+    wrap.innerHTML = `
+      <div class="card-row">
+        <div>
+          <h3>${escapeHtml(n.itemName)}</h3>
+          <span class="tag">${escapeHtml(n.category)}</span>
+          <span class="tag" style="margin-left:6px;">${escapeHtml(n.urgency)}</span>
+          <div class="meta">${escapeHtml(n.description || '')}</div>
+          <div class="meta">${n.quantityReceived} / ${n.quantityRequired} received · <strong>${escapeHtml(n.status)}</strong> (updates automatically as donations are delivered)</div>
+        </div>
+        <div class="actions">
+          <button class="btn-gold" onclick="startEditNeed(${n.needId})">Edit</button>
+          <button class="btn-danger" onclick="deleteNeed(${n.needId})">Delete</button>
+        </div>
+      </div>
+      <div id="edit-need-${n.needId}"></div>
+    `;
+    wrap.dataset.need = JSON.stringify(n);
+    return wrap;
+  }
+
+  function startEditNeed(needId){
+    const card = [...document.querySelectorAll('#needs-list .card')]
+      .find(c => JSON.parse(c.dataset.need).needId === needId);
+    const n = JSON.parse(card.dataset.need);
+    const editBox = document.getElementById('edit-need-' + needId);
+    if(editBox.innerHTML){ editBox.innerHTML = ''; return; }
+    editBox.innerHTML = `
+      <form class="inline-form" style="margin-top:12px;" onsubmit="submitEditNeed(event, ${needId})">
+        <div><label>Item name</label><input name="itemName" value="${escapeAttr(n.itemName)}" required></div>
+        <div><label>Category</label><input name="category" value="${escapeAttr(n.category)}" required></div>
+        <div><label>Quantity required</label><input name="quantityRequired" type="number" min="1" value="${n.quantityRequired}" required></div>
+        <div>
+          <label>Urgency</label>
+          <select name="urgency">
+            ${['LOW','MEDIUM','HIGH','CRITICAL'].map(u =>
+              `<option value="${u}" ${n.urgency===u?'selected':''}>${u}</option>`).join('')}
+          </select>
+        </div>
+        <div class="full"><label>Description</label><textarea name="description">${escapeHtml(n.description||'')}</textarea></div>
+        <div class="full">
+          <button type="submit" class="btn-primary">Save changes</button>
+        </div>
+      </form>
+    `;
+  }
+
+  async function submitEditNeed(e, needId){
+    e.preventDefault();
+    const f = e.target;
+    const payload = {
+      category: f.category.value,
+      itemName: f.itemName.value,
+      quantityRequired: Number(f.quantityRequired.value),
+      urgency: f.urgency.value,
+      description: f.description.value
+    };
+    try{
+      await Api.needs.update(needId, payload);
+      loadNeeds();
+    } catch(err){
+      alert('Could not save: ' + err.message);
+    }
+  }
+
+  async function deleteNeed(needId){
+    if(!confirm('Delete this need? This cannot be undone.')) return;
+    try{
+      await Api.needs.remove(needId);
+      loadNeeds();
+    } catch(err){
+      alert('Could not delete: ' + err.message);
+    }
+  }
+
+  async function handleCreateNeed(e){
+    e.preventDefault();
+    const f = e.target;
+    const payload = {
+      institutionId: Number(institutionId),
+      category: f.category.value,
+      itemName: f.itemName.value,
+      quantityRequired: Number(f.quantityRequired.value),
+      urgency: f.urgency.value,
+      description: f.description.value
+    };
+    try{
+      await Api.needs.create(payload);
+      f.reset();
+      loadNeeds();
+    } catch(err){
+      alert('Could not post need: ' + err.message);
+    }
+  }
+
+  // ---------- VOLUNTEER OPPORTUNITIES + REGISTRATIONS ----------
+
+  async function loadOpportunities(){
+    const listEl = document.getElementById('opportunities-list');
+    const statusEl = document.getElementById('opps-status');
+    statusEl.textContent = 'loading…';
+    try{
+      const opps = await Api.opportunities.listByInstitution(institutionId);
+      statusEl.textContent = opps.length + ' opportunit' + (opps.length === 1 ? 'y' : 'ies');
+      if(opps.length === 0){
+        listEl.innerHTML = '<div class="empty">No volunteer opportunities posted yet.</div>';
+        return;
+      }
+      listEl.innerHTML = '';
+      for(const opp of opps){
+        listEl.appendChild(renderOpportunityCard(opp));
+      }
+    } catch(err){
+      statusEl.textContent = '';
+      listEl.innerHTML = '<div class="error-msg">Could not load opportunities: ' + err.message + '</div>';
+    }
+  }
+
+  function renderItemDonationCard(d){
+    const wrap = document.createElement('div');
+    wrap.className = 'card';
+    const status = (d.deliveryStatus || 'PENDING').toUpperCase();
+    const pillClass =
+            status === 'DELIVERED' || status === 'ACCEPTED' ? 'pill-accepted' :
+                    status === 'CANCELLED' || status === 'REJECTED' ? 'pill-rejected' :
+                            status === 'PICKED_UP' ? 'pill-completed' : 'pill-pending';
+    const id = d.itemDonationId;
+
+    let buttons = '';
+    if(status === 'PENDING'){
+      buttons += `<button class="btn-accept" onclick="itemDonationAction(${id}, 'approve')">Approve</button>`;
+      buttons += `<button class="btn-reject" onclick="itemDonationAction(${id}, 'reject')">Reject</button>`;
+    }
+    if(status === 'ACCEPTED' && d.pickupOrDrop === 'PICKUP'){
+      buttons += `<button class="btn-gold" onclick="itemDonationAction(${id}, 'markPickedUp')">Mark picked up</button>`;
+    }
+    if(status === 'ACCEPTED' || status === 'PICKED_UP'){
+      buttons += `<button class="btn-accept" onclick="itemDonationAction(${id}, 'markDelivered')">Mark delivered</button>`;
+      buttons += `<button class="btn-danger" onclick="itemDonationAction(${id}, 'cancel')">Cancel</button>`;
+    }
+
+    wrap.innerHTML = `
+      <div class="card-row">
+        <div>
+          <h3>${escapeHtml(d.itemName)} × ${d.quantity} — Item donation</h3>
+          <span class="tag">${escapeHtml(d.pickupOrDrop)}</span>
+          ${d.needId ? `<span class="tag" style="margin-left:6px;">Need #${d.needId}</span>` : ''}
+          <div class="meta">Status: <span class="status-pill ${pillClass}">${status}</span></div>
+          ${d.pickupAddress ? `<div class="meta">Pickup from: ${escapeHtml(d.pickupAddress)}</div>` : ''}
+        </div>
+        <div class="actions" id="item-donation-actions-${id}">${buttons}</div>
+      </div>
+    `;
+    return wrap;
+  }
+
+  async function loadRegistrations(opportunityId, btn){
+    const box = document.getElementById('regs-' + opportunityId);
+    if(box.style.display === 'block'){ box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    box.innerHTML = 'loading…';
+    try{
+      const regs = await Api.registrations.listByOpportunity(opportunityId);
+      if(regs.length === 0){
+        box.innerHTML = '<div class="empty">No applicants yet.</div>';
+        return;
+      }
+      box.innerHTML = '';
+      for(const r of regs){
+        box.appendChild(renderRegistrationCard(r, opportunityId));
+      }
+    } catch(err){
+      box.innerHTML = '<div class="error-msg">' + err.message + '</div>';
+    }
+  }
+
+  function renderRegistrationCard(r, opportunityId){
     const wrap = document.createElement('div');
     wrap.className = 'card reg-card';
-    const status = (r.status || 'PENDING').toUpperCase();
+    const status = (r.status || 'APPLIED').toUpperCase();
     const pillClass = {
-      PENDING:'pill-pending', ACCEPTED:'pill-accepted',
+      APPLIED:'pill-pending', ACCEPTED:'pill-accepted',
       REJECTED:'pill-rejected', COMPLETED:'pill-completed'
     }[status] || 'pill-pending';
 
@@ -504,12 +834,12 @@
           <span class="status-pill ${pillClass}">${status}</span>
         </div>
         <div class="actions" id="reg-actions-${r.registrationId}">
-          ${status === 'PENDING' ? `
-            <button class="btn-accept" onclick="actOnRegistration(${r.registrationId}, 'accept')">Accept</button>
-            <button class="btn-reject" onclick="actOnRegistration(${r.registrationId}, 'reject')">Reject</button>
+          ${status === 'APPLIED' ? `
+            <button class="btn-accept" onclick="actOnRegistration(${r.registrationId}, 'accept', ${opportunityId})">Accept</button>
+            <button class="btn-reject" onclick="actOnRegistration(${r.registrationId}, 'reject', ${opportunityId})">Reject</button>
           ` : ''}
           ${status === 'ACCEPTED' ? `
-            <button class="btn-gold" onclick="actOnRegistration(${r.registrationId}, 'complete')">Mark completed</button>
+            <button class="btn-gold" onclick="actOnRegistration(${r.registrationId}, 'complete', ${opportunityId})">Mark completed</button>
           ` : ''}
         </div>
       </div>
@@ -517,11 +847,12 @@
     return wrap;
   }
 
-  async function actOnRegistration(registrationId, action){
+  async function actOnRegistration(registrationId, action, opportunityId){
     try{
-      await apiFetch('/registrations/' + registrationId + '/' + action, { method:'POST' });
-      // reload the current opportunity view
-      document.getElementById('opportunityIdInput').closest('form').requestSubmit();
+      await Api.registrations[action](registrationId);
+      const box = document.getElementById('regs-' + opportunityId);
+      box.style.display = 'none';
+      loadRegistrations(opportunityId);
     } catch(err){
       alert('Could not update: ' + err.message);
     }
