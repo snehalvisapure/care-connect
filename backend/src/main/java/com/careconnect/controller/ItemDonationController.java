@@ -27,6 +27,8 @@ import java.util.List;
  *   GET  /api/item-donations?institutionId={id}    -> item donations received by an institution
  *   GET  /api/item-donations/{id}                   -> get one item donation
  *   POST /api/item-donations                         -> create a new item donation
+ *   POST /api/item-donations/{id}/approve            -> institution approves a PENDING donation
+ *   POST /api/item-donations/{id}/reject             -> institution rejects a PENDING donation
  *   POST /api/item-donations/{id}/pickup             -> mark PICKUP-type donation as collected
  *   POST /api/item-donations/{id}/deliver             -> mark delivered (advances the linked need, if any)
  *   POST /api/item-donations/{id}/cancel              -> cancel before delivery
@@ -133,6 +135,16 @@ public class ItemDonationController extends HttpServlet {
                     resp.setStatus(HttpServletResponse.SC_OK);
                     resp.getWriter().write(gson.toJson(updated));
 
+                } else if (segments.length == 2 && segments[1].equals("approve")) {
+                    ItemDonation updated = itemDonationService.approveItemDonation(itemDonationId);
+                    resp.setStatus(HttpServletResponse.SC_OK);
+                    resp.getWriter().write(gson.toJson(updated));
+
+                } else if (segments.length == 2 && segments[1].equals("reject")) {
+                    ItemDonation updated = itemDonationService.rejectItemDonation(itemDonationId);
+                    resp.setStatus(HttpServletResponse.SC_OK);
+                    resp.getWriter().write(gson.toJson(updated));
+
                 } else if (segments.length == 2 && segments[1].equals("cancel")) {
                     ItemDonation updated = itemDonationService.cancelItemDonation(itemDonationId);
                     resp.setStatus(HttpServletResponse.SC_OK);
@@ -145,15 +157,22 @@ public class ItemDonationController extends HttpServlet {
 
         } catch (JsonSyntaxException e) {
             writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Malformed JSON in request body.");
+
+        } catch (JsonSyntaxException e) {
+            writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Malformed JSON in request body.");
+        } catch (NumberFormatException e) {
+            writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Invalid ID or date in request.");
         } catch (IllegalArgumentException e) {
-            // NumberFormatException (invalid ID/date) must be caught before the
-            // broader IllegalArgumentException (validation failures), since it's
-            // a subclass - Java would otherwise reject this as unreachable code.
-            if (e instanceof NumberFormatException) {
-                writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Invalid ID or date in request.");
-            } else {
-                writeError(resp, HttpServletResponse.SC_NOT_FOUND, e.getMessage());
-            }
+            writeError(resp, HttpServletResponse.SC_NOT_FOUND, e.getMessage());
+        } catch (IllegalStateException e) {
+            writeError(resp, HttpServletResponse.SC_CONFLICT, e.getMessage());
+        } catch (SQLException e) {
+
+        } catch (NumberFormatException e) {
+            writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Invalid ID or date in request.");
+        } catch (IllegalArgumentException e) {
+            writeError(resp, HttpServletResponse.SC_NOT_FOUND, e.getMessage());
+>>>>>>> origin/main
         } catch (IllegalStateException e) {
             writeError(resp, HttpServletResponse.SC_CONFLICT, e.getMessage());
         } catch (SQLException e) {

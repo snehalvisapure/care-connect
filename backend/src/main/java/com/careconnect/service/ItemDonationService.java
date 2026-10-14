@@ -23,12 +23,16 @@ import java.util.List;
  * An item donation is always backed by two rows: a `donations` row
  * (donation_type = ITEM, amount = 0.00) created by this class via
  * DonationDAO, and the `item_donations` row with the item-specific detail.
- * This mirrors DonationService's monetary-donation flow but for physical
- * items instead of money.
+ *
+ * Lifecycle:
+ *   PENDING -> ACCEPTED (institution approves) -> PICKED_UP (PICKUP only) -> DELIVERED
+ *   PENDING -> REJECTED (institution rejects)
+ *   PENDING / ACCEPTED / PICKED_UP -> CANCELLED
  *
  * THIS IS THE Needs <-> Donations INTEGRATION POINT: quantity_received on
  * a `needs` row only ever advances when an item donation tied to that need
- * is marked DELIVERED (see markDelivered()). NeedService.recordQuantityReceived()
+ * is marked DELIVERED (see markDelivered()). Approving or rejecting a
+ * donation never touches the need. NeedService.recordQuantityReceived()
  * is what actually recalculates the need's status (OPEN / PARTIALLY_FULFILLED /
  * FULFILLED) - this class never touches needs.quantity_received directly.
  *
@@ -36,9 +40,7 @@ import java.util.List;
  * quantity_received: a need's quantity is a count of physical items
  * (e.g. "20 bags of rice"), and money pledged toward a need doesn't
  * translate 1:1 into item units, so mixing the two would corrupt the
- * fulfillment count. A monetary donation can still be linked to a need_id
- * for tracking/reporting (see DashboardService), it just doesn't move
- * quantity_received.
+ * fulfillment count.
  */
 public class ItemDonationService {
 
@@ -74,8 +76,8 @@ public class ItemDonationService {
      *         null, or pickupOrDrop is PICKUP with a blank pickupAddress.
      */
     public ItemDonation createItemDonation(int donorId, int institutionId, Integer needId,
-                                            String itemName, int quantity,
-                                            PickupOrDrop pickupOrDrop, String pickupAddress)
+                                           String itemName, int quantity,
+                                           PickupOrDrop pickupOrDrop, String pickupAddress)
             throws SQLException {
 
         if (institutionDAO.findById(institutionId) == null) {
@@ -146,18 +148,68 @@ public class ItemDonationService {
     }
 
     /**
-     * Marks a PICKUP-type item donation as collected from the donor.
-     * (DROP_OFF donations skip this step and go straight PENDING -> DELIVERED.)
+     * The institution approves a PENDING item donation.
+     * Does NOT touch the need's quantity_received - that still only
+     * advances when the donation is marked DELIVERED.
      *
      * @throws IllegalArgumentException if no such item donation exists.
      * @throws IllegalStateException if it isn't currently PENDING.
      */
-    public ItemDonation markPickedUp(int itemDonationId) throws SQLException {
+    public ItemDonation approveItemDonation(int itemDonationId) throws SQLException {
         ItemDonation itemDonation = getItemDonation(itemDonationId);
 
         if (itemDonation.getDeliveryStatus() != DeliveryStatus.PENDING) {
             throw new IllegalStateException(
-                    "Only a PENDING item donation can be marked PICKED_UP. Current status: "
+                    "Only a PENDING item donation can be approved. Current status: "
+                            + itemDonation.getDeliveryStatus());
+        }
+
+        itemDonationDAO.updateDeliveryStatus(itemDonationId, DeliveryStatus.ACCEPTED);
+        itemDonation.setDeliveryStatus(DeliveryStatus.ACCEPTED);
+        return itemDonation;
+    }
+
+    /**
+     * The institution rejects a PENDING item donation.
+     * The parent donation row is marked CANCELLED so it doesn't look
+     * like an open donation anywhere else.
+     *
+     * @throws IllegalArgumentException if no such item donation exists.
+     * @throws IllegalStateException if it isn't currently PENDING.
+     */
+    public ItemDonation rejectItemDonation(int itemDonationId) throws SQLException {
+        ItemDonation itemDonation = getItemDonation(itemDonationId);
+
+        if (itemDonation.getDeliveryStatus() != DeliveryStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Only a PENDING item donation can be rejected. Current status: "
+                            + itemDonation.getDeliveryStatus());
+        }
+
+        itemDonationDAO.updateDeliveryStatus(itemDonationId, DeliveryStatus.REJECTED);
+        itemDonation.setDeliveryStatus(DeliveryStatus.REJECTED);
+
+        Donation donation = donationDAO.getDonationById(itemDonation.getDonationId());
+        if (donation != null) {
+            donationDAO.updateDonationStatus(donation.getDonationId(), DONATION_STATUS_CANCELLED);
+        }
+
+        return itemDonation;
+    }
+
+    /**
+     * Marks a PICKUP-type item donation as collected from the donor.
+     * (DROP_OFF donations skip this step and go straight ACCEPTED -> DELIVERED.)
+     *
+     * @throws IllegalArgumentException if no such item donation exists.
+     * @throws IllegalStateException if it isn't currently ACCEPTED.
+     */
+    public ItemDonation markPickedUp(int itemDonationId) throws SQLException {
+        ItemDonation itemDonation = getItemDonation(itemDonationId);
+
+        if (itemDonation.getDeliveryStatus() != DeliveryStatus.ACCEPTED) {
+            throw new IllegalStateException(
+                    "Only an ACCEPTED item donation can be marked PICKED_UP. Current status: "
                             + itemDonation.getDeliveryStatus());
         }
 
@@ -176,13 +228,14 @@ public class ItemDonationService {
      *    NeedService.recordQuantityReceived() - which also recalculates
      *    the need's status (OPEN / PARTIALLY_FULFILLED / FULFILLED).
      *
-     * Allowed from PENDING (typical for DROP_OFF - donor hands it over
+     * Allowed from ACCEPTED (typical for DROP_OFF - donor hands it over
      * directly) or from PICKED_UP (typical for PICKUP - collected earlier,
      * now confirmed received).
      *
      * @param deliveryDate the date it was received; pass null to default to today.
      * @throws IllegalArgumentException if no such item donation exists.
-     * @throws IllegalStateException if it's already DELIVERED or was CANCELLED.
+     * @throws IllegalStateException if it's still PENDING (not yet approved),
+     *         or already DELIVERED, REJECTED or CANCELLED.
      */
     public ItemDonation markDelivered(int itemDonationId, Date deliveryDate) throws SQLException {
         ItemDonation itemDonation = getItemDonation(itemDonationId);
@@ -193,6 +246,12 @@ public class ItemDonationService {
         }
         if (current == DeliveryStatus.CANCELLED) {
             throw new IllegalStateException("A CANCELLED item donation cannot be marked DELIVERED.");
+        }
+        if (current == DeliveryStatus.REJECTED) {
+            throw new IllegalStateException("A REJECTED item donation cannot be marked DELIVERED.");
+        }
+        if (current == DeliveryStatus.PENDING) {
+            throw new IllegalStateException("This item donation must be approved before it can be delivered.");
         }
 
         Date effectiveDate = deliveryDate != null ? deliveryDate : new Date(System.currentTimeMillis());
@@ -222,7 +281,7 @@ public class ItemDonationService {
      * quantity_received and can't be un-counted through this method.
      *
      * @throws IllegalArgumentException if no such item donation exists.
-     * @throws IllegalStateException if it's already DELIVERED or CANCELLED.
+     * @throws IllegalStateException if it's already DELIVERED, REJECTED or CANCELLED.
      */
     public ItemDonation cancelItemDonation(int itemDonationId) throws SQLException {
         ItemDonation itemDonation = getItemDonation(itemDonationId);
@@ -232,6 +291,9 @@ public class ItemDonationService {
         }
         if (itemDonation.getDeliveryStatus() == DeliveryStatus.CANCELLED) {
             throw new IllegalStateException("This item donation is already CANCELLED.");
+        }
+        if (itemDonation.getDeliveryStatus() == DeliveryStatus.REJECTED) {
+            throw new IllegalStateException("A REJECTED item donation cannot be cancelled.");
         }
 
         itemDonationDAO.updateDeliveryStatus(itemDonationId, DeliveryStatus.CANCELLED);

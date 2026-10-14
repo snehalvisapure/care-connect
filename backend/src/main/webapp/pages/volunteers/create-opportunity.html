@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Post a volunteer opportunity — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Post a volunteer opportunity</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div id="notice-slot"></div>
+
+    <form id="create-form" class="card" style="max-width: 560px;">
+      <div class="form-group">
+        <label for="title">Title</label>
+        <input type="text" id="title" placeholder="e.g. Weekend meal drive" required />
+      </div>
+
+      <div class="form-group">
+        <label for="description">Description</label>
+        <textarea id="description" rows="4" required></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="requiredSkills">Required skills</label>
+        <input type="text" id="requiredSkills" placeholder="e.g. cooking, driving (optional)" />
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="eventDate">Event date</label>
+          <input type="date" id="eventDate" required />
+        </div>
+        <div class="form-group">
+          <label for="location">Location</label>
+          <input type="text" id="location" required />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="startTime">Start time (optional)</label>
+          <input type="time" id="startTime" />
+        </div>
+        <div class="form-group">
+          <label for="endTime">End time (optional)</label>
+          <input type="time" id="endTime" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="maxVolunteers">Max volunteers (optional)</label>
+        <input type="number" id="maxVolunteers" min="1" placeholder="Leave blank for no cap" />
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="submit-btn">Post opportunity</button>
+    </form>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("unenforced"));
+
+      const notice = document.getElementById("notice-slot");
+      const form = document.getElementById("create-form");
+
+      let institutionId;
+      try {
+        const own = await Api.institutions.getByUserId(user.userId);
+        if (!own) {
+          notice.innerHTML = `<div class="pending-banner"><strong>No institution registered</strong><p>Register your institution before posting a volunteer opportunity.</p></div>`;
+          form.style.display = "none";
+          return;
+        }
+        institutionId = own.institutionId;
+      } catch (err) {
+        console.error(err);
+        notice.innerHTML = `<p>Could not check your institution. ${err.message || ""}</p>`;
+        form.style.display = "none";
+        return;
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const submitBtn = document.getElementById("submit-btn");
+
+        const maxVolunteersRaw = document.getElementById("maxVolunteers").value;
+        const startTimeRaw = document.getElementById("startTime").value;
+        const endTimeRaw = document.getElementById("endTime").value;
+
+        const payload = {
+          institutionId,
+          title: document.getElementById("title").value.trim(),
+          description: document.getElementById("description").value.trim(),
+          requiredSkills: document.getElementById("requiredSkills").value.trim(),
+          eventDate: document.getElementById("eventDate").value,
+          // <input type="time"> gives "HH:mm" - the backend expects "HH:mm:ss".
+          startTime: startTimeRaw ? startTimeRaw + ":00" : null,
+          endTime: endTimeRaw ? endTimeRaw + ":00" : null,
+          location: document.getElementById("location").value.trim(),
+          maxVolunteers: maxVolunteersRaw ? Number(maxVolunteersRaw) : null,
+        };
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Posting...";
+
+        try {
+          await Api.opportunities.create(payload);
+          UiHelpers.toast("Opportunity posted.", "success");
+          window.location.href = `manage.html?institutionId=${institutionId}`;
+        } catch (err) {
+          console.error(err);
+          UiHelpers.toast(err.message || "Could not post opportunity.", "error");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Post opportunity";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

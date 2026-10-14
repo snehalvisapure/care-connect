@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My applications — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>My applications</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div id="content-slot">
+      <p>Loading...</p>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("unenforced"));
+
+      const contentSlot = document.getElementById("content-slot");
+
+      async function load() {
+        let volunteerProfile;
+        try {
+          const all = await Api.volunteers.list();
+          volunteerProfile = all.find((v) => String(v.userId) === String(user.userId));
+        } catch (err) {
+          console.error(err);
+          contentSlot.innerHTML = `<p>Could not load your volunteer profile. ${err.message || ""}</p>`;
+          return;
+        }
+
+        if (!volunteerProfile) {
+          contentSlot.innerHTML = "";
+          const empty = document.createElement("div");
+          empty.className = "card empty-state";
+          empty.innerHTML = `<h3>You're not registered as a volunteer</h3><p>Register first to apply to opportunities.</p>`;
+          const link = document.createElement("a");
+          link.className = "btn btn-primary";
+          link.href = "register.html";
+          link.textContent = "Become a volunteer";
+          empty.appendChild(link);
+          contentSlot.appendChild(empty);
+          return;
+        }
+
+        let registrations;
+        try {
+          registrations = await Api.registrations.listByVolunteer(volunteerProfile.volunteerId);
+        } catch (err) {
+          console.error(err);
+          contentSlot.innerHTML = `<p>Could not load your applications. ${err.message || ""}</p>`;
+          return;
+        }
+
+        contentSlot.innerHTML = `
+          <div style="margin-bottom: 16px;">
+            <a class="btn btn-primary btn-sm" href="opportunities.html">Browse opportunities</a>
+          </div>
+        `;
+
+        if (registrations.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "card empty-state";
+          empty.textContent = "You haven't applied to anything yet.";
+          contentSlot.appendChild(empty);
+          return;
+        }
+
+        const list = document.createElement("div");
+        list.className = "donation-list";
+
+        for (const reg of registrations) {
+          let opp = null;
+          try {
+            opp = await Api.opportunities.getById(reg.opportunityId);
+          } catch (e) {
+            console.warn("Could not load opportunity:", e);
+          }
+
+          const row = document.createElement("div");
+          row.className = "donation-row";
+          row.innerHTML = `
+            <div class="donation-row-main">
+              <strong>${opp ? opp.title : "Opportunity #" + reg.opportunityId}</strong>
+              ${opp ? `<div class="text-small">${opp.location || ""} · ${UiHelpers.formatDate(opp.eventDate)}</div>` : ""}
+              <div class="text-small">Applied ${UiHelpers.formatDate(reg.registeredAt)}</div>
+              <span class="status-pill registration-status-${reg.status}">${reg.status}</span>
+            </div>
+            <div class="donation-row-actions"></div>
+          `;
+
+          const actions = row.querySelector(".donation-row-actions");
+          if (reg.status === "APPLIED") {
+            const withdrawBtn = document.createElement("button");
+            withdrawBtn.className = "btn btn-outline btn-sm";
+            withdrawBtn.type = "button";
+            withdrawBtn.textContent = "Withdraw";
+            withdrawBtn.addEventListener("click", async () => {
+              if (!confirm("Withdraw this application?")) return;
+              try {
+                await Api.registrations.withdraw(reg.registrationId);
+                UiHelpers.toast("Application withdrawn.", "success");
+                load();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not withdraw.", "error");
+              }
+            });
+            actions.appendChild(withdrawBtn);
+          }
+
+          list.appendChild(row);
+        }
+
+        contentSlot.appendChild(list);
+      }
+
+      await load();
+    })();
+  </script>
+</body>
+</html>

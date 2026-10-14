@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manage volunteer opportunities — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Manage volunteer opportunities</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div id="notice-slot"></div>
+
+    <div id="content-slot">
+      <p>Loading...</p>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("unenforced"));
+
+      const notice = document.getElementById("notice-slot");
+      const contentSlot = document.getElementById("content-slot");
+      const params = new URLSearchParams(window.location.search);
+      let institutionId = params.get("institutionId");
+
+      // A volunteer's own profile is only needed to render applicant
+      // names meaningfully - the API only gives us volunteerId per
+      // registration, never the volunteer's name directly, so we look
+      // each one up (cached) as we render.
+      const volunteerCache = new Map();
+      async function volunteerLabel(volunteerId) {
+        if (volunteerCache.has(volunteerId)) return volunteerCache.get(volunteerId);
+        try {
+          const v = await Api.volunteers.getById(volunteerId);
+          const label = `Volunteer #${v.volunteerId} (skills: ${v.skills || "—"})`;
+          volunteerCache.set(volunteerId, label);
+          return label;
+        } catch (e) {
+          return `Volunteer #${volunteerId}`;
+        }
+      }
+
+      async function load() {
+        let opportunities;
+        try {
+          opportunities = await Api.opportunities.listByInstitution(institutionId);
+        } catch (err) {
+          console.error(err);
+          contentSlot.innerHTML = `<p>Could not load opportunities. ${err.message || ""}</p>`;
+          return;
+        }
+
+        contentSlot.innerHTML = `
+          <div style="margin-bottom: 16px;">
+            <a class="btn btn-primary btn-sm" href="create-opportunity.html">Post a new opportunity</a>
+          </div>
+        `;
+
+        if (opportunities.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "card empty-state";
+          empty.textContent = "No opportunities posted yet.";
+          contentSlot.appendChild(empty);
+          return;
+        }
+
+        for (const opp of opportunities) {
+          const card = document.createElement("div");
+          card.className = "card";
+          card.style.marginBottom = "20px";
+          card.innerHTML = `
+            <div class="opportunity-card-top">
+              <div>
+                <strong>${opp.title}</strong>
+                <div class="text-small">${opp.location || "—"} · ${UiHelpers.formatDate(opp.eventDate)}</div>
+              </div>
+              <span class="status-pill opportunity-status-${opp.status}">${opp.status}</span>
+            </div>
+            <p class="text-small">${opp.description || ""}</p>
+            <div class="opportunity-card-actions" id="opp-actions-${opp.opportunityId}"></div>
+            <h4 style="margin-top: 16px; margin-bottom: 4px;">Applicants</h4>
+            <div id="applicants-${opp.opportunityId}"><p class="text-small">Loading applicants...</p></div>
+          `;
+          contentSlot.appendChild(card);
+
+          const oppActions = card.querySelector(`#opp-actions-${opp.opportunityId}`);
+          if (opp.status === "OPEN") {
+            const closeBtn = document.createElement("button");
+            closeBtn.className = "btn btn-outline btn-sm";
+            closeBtn.type = "button";
+            closeBtn.textContent = "Close opportunity";
+            closeBtn.addEventListener("click", async () => {
+              try {
+                await Api.opportunities.close(opp.opportunityId);
+                UiHelpers.toast("Opportunity closed.", "success");
+                load();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not close.", "error");
+              }
+            });
+            oppActions.appendChild(closeBtn);
+          }
+          if (opp.status === "OPEN" || opp.status === "CLOSED") {
+            const completeBtn = document.createElement("button");
+            completeBtn.className = "btn btn-primary btn-sm";
+            completeBtn.type = "button";
+            completeBtn.textContent = "Mark completed";
+            completeBtn.addEventListener("click", async () => {
+              try {
+                await Api.opportunities.complete(opp.opportunityId);
+                UiHelpers.toast("Opportunity marked completed.", "success");
+                load();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not update.", "error");
+              }
+            });
+            oppActions.appendChild(completeBtn);
+          }
+
+          // Applicants (loaded per-opportunity so one failure doesn't
+          // block the rest of the page).
+          const applicantsSlot = card.querySelector(`#applicants-${opp.opportunityId}`);
+          try {
+            const regs = await Api.registrations.listByOpportunity(opp.opportunityId);
+            if (regs.length === 0) {
+              applicantsSlot.innerHTML = `<p class="text-small">No applicants yet.</p>`;
+            } else {
+              applicantsSlot.innerHTML = "";
+              for (const reg of regs) {
+                const label = await volunteerLabel(reg.volunteerId);
+                const row = document.createElement("div");
+                row.className = "applicant-row";
+                row.innerHTML = `
+                  <div>
+                    <div>${label}</div>
+                    <span class="status-pill registration-status-${reg.status}">${reg.status}</span>
+                  </div>
+                  <div class="opportunity-card-actions"></div>
+                `;
+                const actions = row.querySelector(".opportunity-card-actions");
+
+                if (reg.status === "APPLIED") {
+                  const acceptBtn = document.createElement("button");
+                  acceptBtn.className = "btn btn-primary btn-sm";
+                  acceptBtn.type = "button";
+                  acceptBtn.textContent = "Accept";
+                  acceptBtn.addEventListener("click", async () => {
+                    try {
+                      await Api.registrations.accept(reg.registrationId);
+                      UiHelpers.toast("Application accepted.", "success");
+                      load();
+                    } catch (err) {
+                      console.error(err);
+                      UiHelpers.toast(err.message || "Could not accept (capacity may be full).", "error");
+                    }
+                  });
+                  actions.appendChild(acceptBtn);
+
+                  const rejectBtn = document.createElement("button");
+                  rejectBtn.className = "btn btn-outline btn-sm";
+                  rejectBtn.type = "button";
+                  rejectBtn.textContent = "Reject";
+                  rejectBtn.addEventListener("click", async () => {
+                    try {
+                      await Api.registrations.reject(reg.registrationId);
+                      UiHelpers.toast("Application rejected.", "success");
+                      load();
+                    } catch (err) {
+                      console.error(err);
+                      UiHelpers.toast(err.message || "Could not reject.", "error");
+                    }
+                  });
+                  actions.appendChild(rejectBtn);
+                } else if (reg.status === "ACCEPTED") {
+                  const completeBtn = document.createElement("button");
+                  completeBtn.className = "btn btn-outline btn-sm";
+                  completeBtn.type = "button";
+                  completeBtn.textContent = "Mark completed";
+                  completeBtn.addEventListener("click", async () => {
+                    try {
+                      await Api.registrations.complete(reg.registrationId);
+                      UiHelpers.toast("Marked completed.", "success");
+                      load();
+                    } catch (err) {
+                      console.error(err);
+                      UiHelpers.toast(err.message || "Could not update.", "error");
+                    }
+                  });
+                  actions.appendChild(completeBtn);
+                }
+
+                applicantsSlot.appendChild(row);
+              }
+            }
+          } catch (err) {
+            console.warn("Could not load applicants for opportunity", opp.opportunityId, err);
+            applicantsSlot.innerHTML = `<p class="text-small">Could not load applicants.</p>`;
+          }
+        }
+      }
+
+      try {
+        if (!institutionId) {
+          const own = await Api.institutions.getByUserId(user.userId);
+          if (!own) {
+            contentSlot.innerHTML = "";
+            const empty = document.createElement("div");
+            empty.className = "card empty-state";
+            empty.innerHTML = `<h3>No institution registered yet</h3><p>Register your institution to manage volunteer opportunities.</p>`;
+            const link = document.createElement("a");
+            link.className = "btn btn-primary";
+            link.href = "../institution/register.html";
+            link.textContent = "Register an institution";
+            empty.appendChild(link);
+            contentSlot.appendChild(empty);
+            return;
+          }
+          institutionId = own.institutionId;
+        } else {
+          const own = await Api.institutions.getByUserId(user.userId);
+          if (!own || String(own.institutionId) !== String(institutionId)) {
+            const warn = document.createElement("div");
+            warn.className = "pending-banner";
+            warn.innerHTML = `<strong>⚠️ Heads up</strong><p>This institution ID doesn't match your own registered institution. The backend won't stop you from viewing or actioning it anyway (it doesn't check this server-side yet) - but it probably isn't what you meant to do.</p>`;
+            notice.appendChild(warn);
+          }
+        }
+        await load();
+      } catch (err) {
+        console.error(err);
+        contentSlot.innerHTML = `<p>Could not load this page. ${err.message || ""}</p>`;
+      }
+    })();
+  </script>
+</body>
+</html>

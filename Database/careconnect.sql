@@ -197,8 +197,7 @@ CREATE TABLE `item_donations` (
   `quantity` int NOT NULL,
   `pickup_or_drop` enum('PICKUP','DROP_OFF') NOT NULL,
   `pickup_address` text,
-  `delivery_status` enum('PENDING','PICKED_UP','DELIVERED','CANCELLED') DEFAULT 'PENDING',
-  `delivery_date` date DEFAULT NULL,
+  `delivery_status` enum('PENDING','ACCEPTED','REJECTED','PICKED_UP','DELIVERED','CANCELLED') DEFAULT 'PENDING',  `delivery_date` date DEFAULT NULL,
   PRIMARY KEY (`item_donation_id`),
   KEY `donation_id` (`donation_id`),
   CONSTRAINT `item_donations_ibfk_1` FOREIGN KEY (`donation_id`) REFERENCES `donations` (`donation_id`) ON DELETE CASCADE

@@ -1,7 +1,20 @@
-# TEMPLATE - copy this file to db.properties (in the same folder) and fill
-# in your own local MySQL credentials. db.properties is gitignored so your
-# real password never gets committed.
+# TEMPLATE - copy this file to db.properties (same folder) and fill in the
+# shared Railway credentials your team lead sent you privately.
+# db.properties is gitignored, so the real password never gets committed.
 
-db.url=jdbc:mysql://localhost:3306/careconnect?useSSL=false&serverTimezone=UTC
-db.username=root
-db.password=your_password_here
+# --- Shared Railway database (default for the team) ---
+db.url=jdbc:mysql://altaria.proxy.rlwy.net:35919/careconnect?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+db.username=YOUR_DATABASE_USERNAME
+db.password=YOUR_DATABASE_PASSWORD
+
+# --- Local fallback (use only if Railway is down, e.g. for a demo) ---
+# db.url=jdbc:mysql://localhost:3306/careconnect?useSSL=false&serverTimezone=UTC
+# db.username=root
+# db.password=your_local_password
+
+
+
+
+
+
+

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Admin</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div id="denied-slot"></div>
+
+    <div id="admin-content" style="display: none;">
+      <div class="admin-tabs">
+        <button type="button" class="btn btn-primary" id="tab-institutions-btn">Institution approvals</button>
+        <button type="button" class="btn btn-outline" id="tab-users-btn">Users</button>
+        <button type="button" class="btn btn-outline" id="tab-donations-btn">Donations</button>
+      </div>
+
+      <!-- ================= Institution approvals panel ================= -->
+      <section id="institutions-panel">
+        <p class="search-note">
+          ⚠️ Approve/reject here is a real backend action, but the backend
+          does not check that the caller is actually an admin - this page's
+          "Admins only" gate below is client-side only.
+        </p>
+        <div id="institutions-content-slot">
+          <p>Loading...</p>
+        </div>
+      </section>
+
+      <!-- ================= Users panel ================= -->
+      <section id="users-panel" style="display: none;">
+        <div class="search-filter-bar" style="max-width: 260px;">
+          <div class="form-group">
+            <label for="user-role-filter">Filter by role</label>
+            <select id="user-role-filter">
+              <option value="">All users</option>
+              <option value="DONOR">Donor</option>
+              <option value="VOLUNTEER">Volunteer</option>
+              <option value="INSTITUTION">Institution</option>
+              <option value="ADMIN">Admin</option>
+            </select>
+          </div>
+        </div>
+        <div id="users-content-slot">
+          <p>Loading...</p>
+        </div>
+      </section>
+
+      <!-- ================= Donations panel ================= -->
+      <section id="donations-panel" style="display: none;">
+        <p class="search-note">
+          ⚠️ This shows monetary donations only - there's no admin endpoint
+          for item donations yet (<code>AdminDonationDAO</code> only queries
+          the <code>donations</code> table).
+        </p>
+        <div id="donations-content-slot">
+          <p>Loading...</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return; // bootPage already redirected to login
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("unenforced"));
+
+      const deniedSlot = document.getElementById("denied-slot");
+      const adminContent = document.getElementById("admin-content");
+
+      // Client-side-only gate - see the unenforced badge above and the
+      // note in Api.admin (api.js) for why this isn't real security.
+      if (user.role !== "ADMIN") {
+        deniedSlot.innerHTML = `
+          <div class="card admin-denied">
+            <h3>Admins only</h3>
+            <p>Your account role is <strong>${user.role}</strong>, not ADMIN.
+            This section isn't for you.</p>
+          </div>
+        `;
+        return;
+      }
+
+      adminContent.style.display = "block";
+
+      // ---------------- Tabs ----------------
+      const tabInstitutionsBtn = document.getElementById("tab-institutions-btn");
+      const tabUsersBtn = document.getElementById("tab-users-btn");
+      const tabDonationsBtn = document.getElementById("tab-donations-btn");
+      const institutionsPanel = document.getElementById("institutions-panel");
+      const usersPanel = document.getElementById("users-panel");
+      const donationsPanel = document.getElementById("donations-panel");
+
+      let usersLoadedOnce = false;
+      let donationsLoadedOnce = false;
+
+      function showTab(tab) {
+        institutionsPanel.style.display = tab === "institutions" ? "block" : "none";
+        usersPanel.style.display = tab === "users" ? "block" : "none";
+        donationsPanel.style.display = tab === "donations" ? "block" : "none";
+
+        tabInstitutionsBtn.className = tab === "institutions" ? "btn btn-primary" : "btn btn-outline";
+        tabUsersBtn.className = tab === "users" ? "btn btn-primary" : "btn btn-outline";
+        tabDonationsBtn.className = tab === "donations" ? "btn btn-primary" : "btn btn-outline";
+
+        if (tab === "users" && !usersLoadedOnce) {
+          usersLoadedOnce = true;
+          loadUsers();
+        }
+        if (tab === "donations" && !donationsLoadedOnce) {
+          donationsLoadedOnce = true;
+          loadDonations();
+        }
+      }
+      tabInstitutionsBtn.addEventListener("click", () => showTab("institutions"));
+      tabUsersBtn.addEventListener("click", () => showTab("users"));
+      tabDonationsBtn.addEventListener("click", () => showTab("donations"));
+
+      // ---------------- Institution approvals ----------------
+      const institutionsContentSlot = document.getElementById("institutions-content-slot");
+
+      async function loadInstitutions() {
+        institutionsContentSlot.innerHTML = "<p>Loading...</p>";
+
+        let institutions;
+        try {
+          institutions = await Api.institutions.list(false); // all, any status
+        } catch (err) {
+          console.error(err);
+          institutionsContentSlot.innerHTML = `<p>Could not load institutions. ${err.message || ""}</p>`;
+          return;
+        }
+
+        if (institutions.length === 0) {
+          institutionsContentSlot.innerHTML = `<div class="card empty-state">No institutions registered yet.</div>`;
+          return;
+        }
+
+        // Pending ones first, so the admin sees what needs action right away.
+        institutions.sort((a, b) => {
+          if (a.verificationStatus === b.verificationStatus) return 0;
+          return a.verificationStatus === "PENDING" ? -1 : 1;
+        });
+
+        const grid = document.createElement("div");
+        grid.className = "institution-grid";
+
+        for (const inst of institutions) {
+          const statusClass = inst.verificationStatus === "APPROVED" ? "status-pill-approved"
+            : inst.verificationStatus === "REJECTED" ? "status-pill-rejected"
+            : "status-pill-pending";
+
+          const card = document.createElement("div");
+          card.className = "institution-card";
+          card.innerHTML = `
+            <div class="institution-card-top">
+              <div>
+                <strong>${inst.institutionName}</strong>
+                <div class="text-small">${(inst.institutionType || "").replace("_", " ")} · ${inst.city || "—"}</div>
+              </div>
+              <span class="status-pill ${statusClass}">${inst.verificationStatus}</span>
+            </div>
+            <p class="text-small" style="margin:0;">${inst.description || ""}</p>
+            <div class="text-small">Reg. no: ${inst.registrationNumber || "—"} · Contact: ${inst.contactPerson || "—"}</div>
+            ${inst.verificationStatus === "REJECTED" && inst.rejectionReason
+              ? `<p class="text-small" style="color: var(--color-urgent); margin:0;">Reason: ${inst.rejectionReason}</p>`
+              : ""}
+            <div class="institution-card-actions" id="inst-actions-${inst.institutionId}"></div>
+          `;
+
+          const actions = card.querySelector(`#inst-actions-${inst.institutionId}`);
+          if (inst.verificationStatus === "PENDING") {
+            const approveBtn = document.createElement("button");
+            approveBtn.type = "button";
+            approveBtn.className = "btn btn-primary btn-sm";
+            approveBtn.textContent = "Approve";
+            approveBtn.addEventListener("click", async () => {
+              try {
+                await Api.institutions.approve(inst.institutionId);
+                UiHelpers.toast("Institution approved.", "success");
+                loadInstitutions();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not approve.", "error");
+              }
+            });
+
+            const rejectBtn = document.createElement("button");
+            rejectBtn.type = "button";
+            rejectBtn.className = "btn btn-outline btn-sm";
+            rejectBtn.textContent = "Reject";
+            rejectBtn.addEventListener("click", async () => {
+              const reason = prompt("Reason for rejecting this institution:");
+              if (reason === null) return; // cancelled
+              try {
+                await Api.institutions.reject(inst.institutionId, reason);
+                UiHelpers.toast("Institution rejected.", "success");
+                loadInstitutions();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not reject.", "error");
+              }
+            });
+
+            actions.appendChild(approveBtn);
+            actions.appendChild(rejectBtn);
+          }
+
+          grid.appendChild(card);
+        }
+
+        institutionsContentSlot.innerHTML = "";
+        institutionsContentSlot.appendChild(grid);
+      }
+
+      // ---------------- Users ----------------
+      const usersContentSlot = document.getElementById("users-content-slot");
+      const userRoleFilter = document.getElementById("user-role-filter");
+
+      // Shared with the Donations tab below, so donor names don't need a
+      // second full user list fetch.
+      let userNameCache = null; // Map<userId, fullName>, built lazily
+
+      async function buildUserNameCache() {
+        if (userNameCache) return userNameCache;
+        userNameCache = new Map();
+        try {
+          const allUsers = await Api.admin.listUsers();
+          for (const u of allUsers) userNameCache.set(u.userId, u.fullName);
+        } catch (e) {
+          console.warn("Could not build user name cache:", e);
+        }
+        return userNameCache;
+      }
+
+      async function loadUsers() {
+        usersContentSlot.innerHTML = "<p>Loading...</p>";
+
+        let users;
+        try {
+          users = await Api.admin.listUsers(userRoleFilter.value || undefined);
+        } catch (err) {
+          console.error(err);
+          usersContentSlot.innerHTML = `<p>Could not load users. ${err.message || ""}</p>`;
+          return;
+        }
+
+        if (users.length === 0) {
+          usersContentSlot.innerHTML = `<div class="card empty-state">No users match that filter.</div>`;
+          return;
+        }
+
+        usersContentSlot.innerHTML = "";
+        for (const u of users) {
+          const row = document.createElement("div");
+          row.className = "user-row";
+          row.innerHTML = `
+            <div class="user-row-main">
+              <strong>${u.fullName}</strong>
+              <span class="status-pill role-pill-${u.role}">${u.role}</span>
+              <div class="text-small">${u.email}${u.phone ? " · " + u.phone : ""}</div>
+              <div class="text-small">${u.address || "—"}</div>
+            </div>
+            <div class="text-small">Joined ${UiHelpers.formatDate(u.createdAt)}</div>
+          `;
+          usersContentSlot.appendChild(row);
+        }
+      }
+
+      userRoleFilter.addEventListener("change", loadUsers);
+
+      // ---------------- Donations ----------------
+      const donationsContentSlot = document.getElementById("donations-content-slot");
+
+      const institutionNameCache = new Map();
+      async function institutionName(institutionId) {
+        if (institutionNameCache.has(institutionId)) return institutionNameCache.get(institutionId);
+        try {
+          const inst = await Api.institutions.getById(institutionId);
+          institutionNameCache.set(institutionId, inst.institutionName);
+          return inst.institutionName;
+        } catch (e) {
+          return `Institution #${institutionId}`;
+        }
+      }
+
+      function money(value) {
+        const n = Number(value || 0);
+        return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+      }
+
+      async function loadDonations() {
+        donationsContentSlot.innerHTML = "<p>Loading...</p>";
+
+        let donations;
+        try {
+          donations = await Api.admin.listDonations();
+        } catch (err) {
+          console.error(err);
+          donationsContentSlot.innerHTML = `<p>Could not load donations. ${err.message || ""}</p>`;
+          return;
+        }
+
+        if (donations.length === 0) {
+          donationsContentSlot.innerHTML = `<div class="card empty-state">No donations recorded yet.</div>`;
+          return;
+        }
+
+        await buildUserNameCache();
+
+        donationsContentSlot.innerHTML = "";
+        for (const d of donations) {
+          const donorName = userNameCache.get(d.donorId) || `User #${d.donorId}`;
+          const instName = await institutionName(d.institutionId);
+
+          const row = document.createElement("div");
+          row.className = "donation-row";
+          row.innerHTML = `
+            <div class="donation-row-main">
+              <strong>${money(d.amount)}</strong> from ${donorName} to ${instName}
+              ${d.needId ? `<span class="text-small"> · linked to need #${d.needId}</span>` : ""}
+              <div class="text-small">${UiHelpers.formatDate(d.donationDate)}${d.receiptNumber ? " · Receipt " + d.receiptNumber : ""}${d.transactionId ? " · Txn " + d.transactionId : ""}</div>
+              <span class="status-pill payment-status-${d.paymentStatus}">${d.paymentStatus}</span>
+              ${d.donationStatus === "CANCELLED" ? `<span class="status-pill donation-status-CANCELLED">CANCELLED</span>` : ""}
+            </div>
+          `;
+          donationsContentSlot.appendChild(row);
+        }
+      }
+
+      // Default: show Institution approvals tab, load right away.
+      await loadInstitutions();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Edit event — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Edit event</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div id="notice-slot"></div>
+
+    <div id="content-slot">
+      <p>Loading...</p>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("unenforced"));
+
+      const notice = document.getElementById("notice-slot");
+      const contentSlot = document.getElementById("content-slot");
+      const params = new URLSearchParams(window.location.search);
+      const eventId = params.get("id");
+
+      if (!eventId) {
+        contentSlot.innerHTML = `<p>No event specified.</p>`;
+        return;
+      }
+
+      let ev;
+      try {
+        ev = await Api.events.getById(eventId);
+      } catch (err) {
+        console.error(err);
+        contentSlot.innerHTML = `<p>Could not load this event. ${err.message || ""}</p>`;
+        return;
+      }
+
+      try {
+        const own = await Api.institutions.getByUserId(user.userId);
+        if (!own || String(own.institutionId) !== String(ev.institutionId)) {
+          const warn = document.createElement("div");
+          warn.className = "pending-banner";
+          warn.innerHTML = `<strong>⚠️ Heads up</strong><p>This event belongs to a different institution than your own. The backend won't stop you from editing it anyway (it doesn't check this server-side yet) - but it probably isn't what you meant to do.</p>`;
+          notice.appendChild(warn);
+        }
+      } catch (e) {
+        console.warn("Could not verify ownership:", e);
+      }
+
+      contentSlot.innerHTML = `
+        <form id="edit-form" class="card" style="max-width: 560px;">
+          <div class="form-group">
+            <label for="title">Title</label>
+            <input type="text" id="title" required />
+          </div>
+          <div class="form-group">
+            <label for="description">Description</label>
+            <textarea id="description" rows="4"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="eventDate">Date</label>
+              <input type="date" id="eventDate" required />
+            </div>
+            <div class="form-group">
+              <label for="eventTime">Time (optional)</label>
+              <input type="time" id="eventTime" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="location">Location</label>
+              <input type="text" id="location" required />
+            </div>
+            <div class="form-group">
+              <label for="category">Category</label>
+              <select id="category">
+                <option value="BIRTHDAY">Birthday</option>
+                <option value="FESTIVAL">Festival</option>
+                <option value="VISITING_DAY">Visiting day</option>
+                <option value="FUNDRAISER">Fundraiser</option>
+                <option value="MEDICAL_CAMP">Medical camp</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" id="submit-btn">Save changes</button>
+          <button type="button" class="btn btn-outline" id="delete-btn">Delete event</button>
+        </form>
+      `;
+
+      document.getElementById("title").value = ev.title || "";
+      document.getElementById("description").value = ev.description || "";
+      document.getElementById("eventDate").value = ev.eventDate || "";
+      document.getElementById("eventTime").value = ev.eventTime ? ev.eventTime.slice(0, 5) : "";
+      document.getElementById("location").value = ev.location || "";
+      document.getElementById("category").value = ev.category || "OTHER";
+
+      document.getElementById("edit-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const submitBtn = document.getElementById("submit-btn");
+        const eventTimeRaw = document.getElementById("eventTime").value;
+
+        const payload = {
+          institutionId: ev.institutionId,
+          title: document.getElementById("title").value.trim(),
+          description: document.getElementById("description").value.trim(),
+          eventDate: document.getElementById("eventDate").value,
+          eventTime: eventTimeRaw ? eventTimeRaw + ":00" : null,
+          location: document.getElementById("location").value.trim(),
+          category: document.getElementById("category").value,
+        };
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Saving...";
+
+        try {
+          await Api.events.update(eventId, payload);
+          UiHelpers.toast("Event updated.", "success");
+          window.location.href = `manage.html?institutionId=${ev.institutionId}`;
+        } catch (err) {
+          console.error(err);
+          UiHelpers.toast(err.message || "Could not update event.", "error");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Save changes";
+        }
+      });
+
+      document.getElementById("delete-btn").addEventListener("click", async () => {
+        if (!confirm("Delete this event? This cannot be undone.")) return;
+        try {
+          await Api.events.remove(eventId);
+          UiHelpers.toast("Event deleted.", "success");
+          window.location.href = `manage.html?institutionId=${ev.institutionId}`;
+        } catch (err) {
+          console.error(err);
+          UiHelpers.toast(err.message || "Could not delete event.", "error");
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

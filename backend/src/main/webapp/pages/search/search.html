@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Search — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Search</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div class="search-type-toggle">
+      <button type="button" class="btn btn-primary" id="tab-institutions-btn">Institutions</button>
+      <button type="button" class="btn btn-outline" id="tab-needs-btn">Needs</button>
+    </div>
+
+    <!-- ================= Institutions panel ================= -->
+    <section id="institutions-panel">
+      <form id="institutions-filter-form" class="search-filter-bar">
+        <div class="form-group">
+          <label for="inst-city">City</label>
+          <input type="text" id="inst-city" placeholder="e.g. Pune" />
+        </div>
+        <div class="form-group">
+          <label for="inst-type">Type</label>
+          <select id="inst-type">
+            <option value="">Any type</option>
+            <option value="OLD_AGE_HOME">Old age home</option>
+            <option value="ORPHANAGE">Orphanage</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <button type="submit" class="btn btn-primary">Search</button>
+        </div>
+      </form>
+      <p class="search-note">
+        Only <strong>approved</strong> institutions show up here — this is public,
+        discovery-first browsing. Leave both fields blank and hit Search to see all
+        approved institutions.
+      </p>
+
+      <div id="institutions-content-slot">
+        <p>Loading...</p>
+      </div>
+    </section>
+
+    <!-- ================= Needs panel ================= -->
+    <section id="needs-panel" style="display: none;">
+      <form id="needs-filter-form" class="search-filter-bar">
+        <div class="form-group">
+          <label for="need-category">Category</label>
+          <input type="text" id="need-category" placeholder="e.g. clothing" />
+        </div>
+        <div class="form-group">
+          <label for="need-urgency">Urgency</label>
+          <select id="need-urgency">
+            <option value="">Any urgency</option>
+            <option value="LOW">Low</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="HIGH">High</option>
+            <option value="CRITICAL">Critical</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="need-status">Status</label>
+          <select id="need-status">
+            <option value="">Any status</option>
+            <option value="OPEN">Open</option>
+            <option value="PARTIALLY_FULFILLED">Partially fulfilled</option>
+            <option value="FULFILLED">Fulfilled</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="need-institution-id">Institution ID (optional)</label>
+          <input type="number" id="need-institution-id" placeholder="Leave blank for all" min="1" />
+        </div>
+        <div class="form-group">
+          <button type="submit" class="btn btn-primary">Search</button>
+        </div>
+      </form>
+      <p class="search-note">
+        ⚠️ This searches needs across <strong>every</strong> institution, including ones
+        still awaiting approval — the needs search doesn't cross-check institution
+        verification status. Leave all fields blank and hit Search to see every open need.
+      </p>
+
+      <div id="needs-content-slot">
+        <p>Loading...</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      // Search is entirely public - no login needed to browse.
+      await UiHelpers.bootPage({ rootPath: "../../" });
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
+
+      // ---------------- Tabs ----------------
+      const tabInstitutionsBtn = document.getElementById("tab-institutions-btn");
+      const tabNeedsBtn = document.getElementById("tab-needs-btn");
+      const institutionsPanel = document.getElementById("institutions-panel");
+      const needsPanel = document.getElementById("needs-panel");
+
+      let needsLoadedOnce = false;
+
+      function showTab(tab) {
+        const isInst = tab === "institutions";
+        institutionsPanel.style.display = isInst ? "block" : "none";
+        needsPanel.style.display = isInst ? "none" : "block";
+        tabInstitutionsBtn.className = isInst ? "btn btn-primary" : "btn btn-outline";
+        tabNeedsBtn.className = isInst ? "btn btn-outline" : "btn btn-primary";
+        if (!isInst && !needsLoadedOnce) {
+          needsLoadedOnce = true;
+          loadNeeds();
+        }
+      }
+      tabInstitutionsBtn.addEventListener("click", () => showTab("institutions"));
+      tabNeedsBtn.addEventListener("click", () => showTab("needs"));
+
+      // ---------------- Institutions search ----------------
+      const institutionsContentSlot = document.getElementById("institutions-content-slot");
+      const institutionsFilterForm = document.getElementById("institutions-filter-form");
+
+      async function loadInstitutions() {
+        institutionsContentSlot.innerHTML = "<p>Loading...</p>";
+
+        let results;
+        try {
+          results = await Api.search.institutions({
+            city: document.getElementById("inst-city").value.trim(),
+            type: document.getElementById("inst-type").value,
+          });
+        } catch (err) {
+          console.error(err);
+          institutionsContentSlot.innerHTML = `<p>Could not reach the backend. ${err.message || ""}</p>`;
+          return;
+        }
+
+        if (results.length === 0) {
+          institutionsContentSlot.innerHTML = `<div class="card empty-state">No approved institutions match those filters.</div>`;
+          return;
+        }
+
+        const grid = document.createElement("div");
+        grid.className = "institution-grid";
+
+        for (const inst of results) {
+          const card = document.createElement("div");
+          card.className = "institution-card";
+          card.innerHTML = `
+            <div class="institution-card-top">
+              <div>
+                <strong>${inst.institutionName}</strong>
+                <div class="text-small">${inst.city || "—"}${inst.state ? ", " + inst.state : ""}</div>
+              </div>
+              <span class="status-pill category-pill">${(inst.institutionType || "").replace("_", " ")}</span>
+            </div>
+            <p class="text-small" style="margin:0;">${inst.description || ""}</p>
+            <div class="text-small">Contact: ${inst.contactPerson || "—"}</div>
+            <div class="institution-card-actions">
+              <a class="btn btn-outline btn-sm" href="../needs/list.html?institutionId=${inst.institutionId}">View needs</a>
+            </div>
+          `;
+          grid.appendChild(card);
+        }
+
+        institutionsContentSlot.innerHTML = "";
+        institutionsContentSlot.appendChild(grid);
+      }
+
+      institutionsFilterForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        loadInstitutions();
+      });
+
+      // ---------------- Needs search ----------------
+      const needsContentSlot = document.getElementById("needs-content-slot");
+      const needsFilterForm = document.getElementById("needs-filter-form");
+
+      // Same cache-and-lookup pattern used in pages/events/list.html.
+      const institutionNameCache = new Map();
+      async function institutionName(institutionId) {
+        if (institutionNameCache.has(institutionId)) return institutionNameCache.get(institutionId);
+        try {
+          const inst = await Api.institutions.getById(institutionId);
+          institutionNameCache.set(institutionId, inst.institutionName);
+          return inst.institutionName;
+        } catch (e) {
+          return `Institution #${institutionId}`;
+        }
+      }
+
+      async function loadNeeds() {
+        needsContentSlot.innerHTML = "<p>Loading...</p>";
+
+        const institutionIdValue = document.getElementById("need-institution-id").value;
+
+        let results;
+        try {
+          results = await Api.search.needs({
+            category: document.getElementById("need-category").value.trim(),
+            urgency: document.getElementById("need-urgency").value,
+            status: document.getElementById("need-status").value,
+            institutionId: institutionIdValue ? Number(institutionIdValue) : undefined,
+          });
+        } catch (err) {
+          console.error(err);
+          needsContentSlot.innerHTML = `<p>Could not reach the backend. ${err.message || ""}</p>`;
+          return;
+        }
+
+        if (results.length === 0) {
+          needsContentSlot.innerHTML = `<div class="card empty-state">No needs match those filters.</div>`;
+          return;
+        }
+
+        const grid = document.createElement("div");
+        grid.className = "need-grid";
+
+        for (const need of results) {
+          const instName = await institutionName(need.institutionId);
+          const pct = need.quantityRequired > 0
+            ? Math.min(100, Math.round((need.quantityReceived / need.quantityRequired) * 100))
+            : 0;
+
+          const card = document.createElement("div");
+          card.className = "need-card";
+          card.innerHTML = `
+            <div class="need-card-top">
+              <div>
+                <strong><a href="../needs/details.html?id=${need.needId}">${need.itemName}</a></strong>
+                <div class="text-small">${instName} · ${need.category || "—"}</div>
+              </div>
+              <span class="urgency-pill urgency-${need.urgency}">${need.urgency}</span>
+            </div>
+            <p class="text-small" style="margin:0;">${need.description || ""}</p>
+            <div class="need-progress-track">
+              <div class="need-progress-fill" style="width:${pct}%;"></div>
+            </div>
+            <div class="need-progress-label">${need.quantityReceived} / ${need.quantityRequired} received · ${need.status.replace("_", " ")}</div>
+          `;
+          grid.appendChild(card);
+        }
+
+        needsContentSlot.innerHTML = "";
+        needsContentSlot.appendChild(grid);
+      }
+
+      needsFilterForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        loadNeeds();
+      });
+
+      // Default: show Institutions tab, load unfiltered results right away.
+      await loadInstitutions();
+    })();
+  </script>
+</body>
+</html>

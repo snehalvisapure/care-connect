@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Add a need — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Add a need</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div id="notice-slot"></div>
+
+    <form id="create-form" class="card" style="max-width: 560px;">
+      <div class="form-group">
+        <label for="itemName">Item name</label>
+        <input type="text" id="itemName" placeholder="e.g. Winter blankets" required />
+      </div>
+
+      <div class="form-group">
+        <label for="category">Category</label>
+        <input type="text" id="category" list="category-suggestions" placeholder="e.g. Bedding" required />
+        <datalist id="category-suggestions">
+          <option value="Food"></option>
+          <option value="Clothing"></option>
+          <option value="Bedding"></option>
+          <option value="Medical"></option>
+          <option value="Education"></option>
+          <option value="Hygiene"></option>
+          <option value="Furniture"></option>
+        </datalist>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="quantityRequired">Quantity needed</label>
+          <input type="number" id="quantityRequired" min="1" required />
+        </div>
+        <div class="form-group">
+          <label for="urgency">Urgency</label>
+          <select id="urgency" required>
+            <option value="LOW">Low</option>
+            <option value="MEDIUM" selected>Medium</option>
+            <option value="HIGH">High</option>
+            <option value="CRITICAL">Critical</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="description">Description</label>
+        <textarea id="description" rows="4" required></textarea>
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="submit-btn">Add need</button>
+    </form>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
+
+      const params = new URLSearchParams(window.location.search);
+      const institutionId = params.get("institutionId");
+      const notice = document.getElementById("notice-slot");
+      const form = document.getElementById("create-form");
+
+      if (!institutionId) {
+        notice.innerHTML = `<div class="pending-banner"><strong>No institution specified</strong><p>Open this page from your institution dashboard so we know which institution to add the need for.</p></div>`;
+        form.style.display = "none";
+        return;
+      }
+
+      // Client-side-only ownership check - the backend does NOT verify
+      // this itself (see the "NOT SERVER-ENFORCED" badge). We show a
+      // warning rather than blocking outright, since we can't be 100%
+      // sure our own check is airtight.
+      try {
+        const own = await Api.institutions.getByUserId(user.userId);
+        if (!own || String(own.institutionId) !== String(institutionId)) {
+          const warn = document.createElement("div");
+          warn.className = "pending-banner";
+          warn.innerHTML = `<strong>⚠️ Heads up</strong><p>This institution ID doesn't match your own registered institution. The backend won't stop you from submitting anyway (it doesn't check this server-side yet) - but it probably isn't what you meant to do.</p>`;
+          notice.appendChild(warn);
+        }
+      } catch (err) {
+        console.warn("Could not verify institution ownership:", err);
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const submitBtn = document.getElementById("submit-btn");
+
+        const payload = {
+          institutionId: Number(institutionId),
+          category: document.getElementById("category").value.trim(),
+          itemName: document.getElementById("itemName").value.trim(),
+          quantityRequired: Number(document.getElementById("quantityRequired").value),
+          urgency: document.getElementById("urgency").value,
+          description: document.getElementById("description").value.trim(),
+        };
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Adding...";
+
+        try {
+          const need = await Api.needs.create(payload);
+          UiHelpers.toast("Need added.", "success");
+          window.location.href = `list.html?institutionId=${institutionId}`;
+        } catch (err) {
+          console.error(err);
+          UiHelpers.toast(err.message || "Could not add need.", "error");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Add need";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

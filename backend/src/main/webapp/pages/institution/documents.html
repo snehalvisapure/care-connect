@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Verification documents — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Verification documents</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div class="pending-banner" style="border-color: #d9d0ee;">
+      <strong>ℹ️ No real file upload yet</strong>
+      <p>
+        The backend stores a document as a URL/path string, not an
+        actual uploaded file. Paste a link (e.g. a Google Drive share
+        link) below rather than picking a file from your computer.
+      </p>
+    </div>
+
+    <div id="content-slot">
+      <p>Loading...</p>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
+
+      const contentSlot = document.getElementById("content-slot");
+      const params = new URLSearchParams(window.location.search);
+      let institutionId = params.get("id");
+
+      async function loadDocuments() {
+        const docs = await Api.documents.listByInstitution(institutionId);
+
+        contentSlot.innerHTML = `
+          <div class="card" style="max-width: 640px; margin-bottom: 24px;">
+            <h3>Uploaded documents</h3>
+            <div id="doc-list"></div>
+          </div>
+
+          <div class="card" style="max-width: 640px;">
+            <h3>Upload a document</h3>
+            <form id="upload-form">
+              <div class="form-group">
+                <label for="documentType">Document type</label>
+                <input type="text" id="documentType" placeholder="e.g. Registration certificate" required />
+              </div>
+              <div class="form-group">
+                <label for="documentPath">Document link (URL)</label>
+                <input type="url" id="documentPath" placeholder="https://drive.google.com/..." required />
+              </div>
+              <button type="submit" class="btn btn-primary" id="upload-btn">Upload</button>
+            </form>
+          </div>
+        `;
+
+        const docList = document.getElementById("doc-list");
+        if (docs.length === 0) {
+          docList.innerHTML = `<p class="text-small">No documents uploaded yet.</p>`;
+        } else {
+          docList.innerHTML = "";
+          docs.forEach((doc) => {
+            const row = document.createElement("div");
+            row.className = "doc-list-item";
+            row.innerHTML = `
+              <div>
+                <strong>${doc.documentType}</strong><br />
+                <a href="${doc.documentPath}" target="_blank" rel="noopener" class="text-small">${doc.documentPath}</a>
+              </div>
+            `;
+            const removeBtn = document.createElement("button");
+            removeBtn.className = "btn btn-outline btn-sm";
+            removeBtn.type = "button";
+            removeBtn.textContent = "Remove";
+            removeBtn.addEventListener("click", async () => {
+              try {
+                await Api.documents.remove(doc.documentId, institutionId);
+                UiHelpers.toast("Document removed.", "success");
+                loadDocuments();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not remove document.", "error");
+              }
+            });
+            row.appendChild(removeBtn);
+            docList.appendChild(row);
+          });
+        }
+
+        document.getElementById("upload-form").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const uploadBtn = document.getElementById("upload-btn");
+          const payload = {
+            institutionId: Number(institutionId),
+            documentType: document.getElementById("documentType").value.trim(),
+            documentPath: document.getElementById("documentPath").value.trim(),
+          };
+          uploadBtn.disabled = true;
+          uploadBtn.textContent = "Uploading...";
+          try {
+            await Api.documents.upload(payload);
+            UiHelpers.toast("Document added.", "success");
+            loadDocuments();
+          } catch (err) {
+            console.error(err);
+            UiHelpers.toast(err.message || "Could not upload document.", "error");
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = "Upload";
+          }
+        });
+      }
+
+      try {
+        if (!institutionId) {
+          const own = await Api.institutions.getByUserId(user.userId);
+          if (!own) {
+            contentSlot.innerHTML = "";
+            const empty = document.createElement("div");
+            empty.className = "card empty-state";
+            empty.innerHTML = `
+              <h3>No institution registered yet</h3>
+              <p>Register your institution before adding documents.</p>
+            `;
+            const link = document.createElement("a");
+            link.className = "btn btn-primary";
+            link.href = "register.html";
+            link.textContent = "Register an institution";
+            empty.appendChild(link);
+            contentSlot.appendChild(empty);
+            return;
+          }
+          institutionId = own.institutionId;
+        }
+        await loadDocuments();
+      } catch (err) {
+        console.error(err);
+        contentSlot.innerHTML = `<p>Could not load documents. ${err.message || ""}</p>`;
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Donations received — CareConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="../../css/style.css" />
+  <link rel="icon" type="image/png" href="../../assets/images/logo.png" />
+</head>
+<body>
+  <div id="header-slot"></div>
+
+  <main class="container page-section">
+    <div class="page-header">
+      <h1>Donations received</h1>
+      <span id="api-badge"></span>
+    </div>
+
+    <div id="notice-slot"></div>
+
+    <div id="content-slot">
+      <p>Loading...</p>
+    </div>
+  </main>
+
+  <div id="footer-slot"></div>
+
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <script src="../../js/api.js"></script>
+  <script src="../../js/session.js"></script>
+  <script src="../../js/ui-helpers.js"></script>
+  <!-- /Shared scripts -->
+
+  <script>
+    (async () => {
+      const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
+      if (!user) return;
+
+      document.getElementById("api-badge").appendChild(UiHelpers.badge("unenforced"));
+
+      const notice = document.getElementById("notice-slot");
+      const contentSlot = document.getElementById("content-slot");
+      const params = new URLSearchParams(window.location.search);
+      let institutionId = params.get("id");
+
+      function money(value) {
+        const n = Number(value || 0);
+        return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+      }
+
+      async function load() {
+        let moneyDonations, itemDonations;
+        try {
+          [moneyDonations, itemDonations] = await Promise.all([
+            Api.donations.listByInstitution(institutionId),
+            Api.itemDonations.listByInstitution(institutionId),
+          ]);
+        } catch (err) {
+          console.error(err);
+          contentSlot.innerHTML = `<p>Could not load donations. ${err.message || ""}</p>`;
+          return;
+        }
+
+        contentSlot.innerHTML = `
+          <h3 class="donation-section-title">Monetary donations</h3>
+          <div class="donation-list" id="money-list"></div>
+          <h3 class="donation-section-title">Item donations</h3>
+          <div class="donation-list" id="item-list"></div>
+        `;
+
+        const moneyList = document.getElementById("money-list");
+        const itemList = document.getElementById("item-list");
+
+        if (moneyDonations.length === 0) {
+          moneyList.innerHTML = `<div class="card empty-state">No monetary donations yet.</div>`;
+        }
+        moneyDonations.forEach((d) => {
+          const row = document.createElement("div");
+          row.className = "donation-row";
+          row.innerHTML = `
+            <div class="donation-row-main">
+              <strong>${money(d.amount)}</strong> from donor #${d.donorId}
+              ${d.needId ? `<span class="text-small"> · linked to need #${d.needId}</span>` : ""}
+              <div class="text-small">${UiHelpers.formatDate(d.donationDate)}${d.receiptNumber ? " · Receipt " + d.receiptNumber : ""}</div>
+              <span class="status-pill payment-status-${d.paymentStatus}">${d.paymentStatus}</span>
+              ${d.donationStatus === "CANCELLED" ? `<span class="status-pill donation-status-CANCELLED">CANCELLED</span>` : ""}
+            </div>
+          `;
+          // Note: confirming/cancelling a pledge is the donor's action
+          // (they're the one paying), so no buttons here - this is a
+          // read-only view of what's coming in.
+          moneyList.appendChild(row);
+        });
+
+        if (itemDonations.length === 0) {
+          itemList.innerHTML = `<div class="card empty-state">No item donations yet.</div>`;
+        }
+        itemDonations.forEach((item) => {
+          const row = document.createElement("div");
+          row.className = "donation-row";
+          row.innerHTML = `
+            <div class="donation-row-main">
+              <strong>${item.quantity} × ${item.itemName}</strong> from donor
+              <div class="text-small">
+                ${item.pickupOrDrop === "PICKUP" ? "Pickup from " + (item.pickupAddress || "—") : "Drop-off"}
+                ${item.deliveryDate ? " · Delivered " + UiHelpers.formatDate(item.deliveryDate) : ""}
+              </div>
+              <span class="status-pill delivery-status-${item.deliveryStatus}">${item.deliveryStatus.replace("_", " ")}</span>
+            </div>
+            <div class="donation-row-actions"></div>
+          `;
+
+          const actions = row.querySelector(".donation-row-actions");
+
+          if (item.deliveryStatus === "PENDING" && item.pickupOrDrop === "PICKUP") {
+            const pickupBtn = document.createElement("button");
+            pickupBtn.className = "btn btn-outline btn-sm";
+            pickupBtn.type = "button";
+            pickupBtn.textContent = "Mark picked up";
+            pickupBtn.addEventListener("click", async () => {
+              try {
+                await Api.itemDonations.markPickedUp(item.itemDonationId);
+                UiHelpers.toast("Marked as picked up.", "success");
+                load();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not update.", "error");
+              }
+            });
+            actions.appendChild(pickupBtn);
+          }
+
+          if (item.deliveryStatus === "PENDING" || item.deliveryStatus === "PICKED_UP") {
+            const deliverBtn = document.createElement("button");
+            deliverBtn.className = "btn btn-primary btn-sm";
+            deliverBtn.type = "button";
+            deliverBtn.textContent = "Mark delivered";
+            deliverBtn.title = "Advances the linked need's quantity received, if any.";
+            deliverBtn.addEventListener("click", async () => {
+              try {
+                await Api.itemDonations.markDelivered(item.itemDonationId);
+                UiHelpers.toast("Marked as delivered.", "success");
+                load();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not update.", "error");
+              }
+            });
+            actions.appendChild(deliverBtn);
+
+            const cancelBtn = document.createElement("button");
+            cancelBtn.className = "btn btn-outline btn-sm";
+            cancelBtn.type = "button";
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.addEventListener("click", async () => {
+              if (!confirm("Cancel this item donation?")) return;
+              try {
+                await Api.itemDonations.cancel(item.itemDonationId);
+                UiHelpers.toast("Item donation cancelled.", "success");
+                load();
+              } catch (err) {
+                console.error(err);
+                UiHelpers.toast(err.message || "Could not cancel.", "error");
+              }
+            });
+            actions.appendChild(cancelBtn);
+          }
+
+          itemList.appendChild(row);
+        });
+      }
+
+      try {
+        if (!institutionId) {
+          const own = await Api.institutions.getByUserId(user.userId);
+          if (!own) {
+            contentSlot.innerHTML = "";
+            const empty = document.createElement("div");
+            empty.className = "card empty-state";
+            empty.innerHTML = `
+              <h3>No institution registered yet</h3>
+              <p>Register your institution to see donations received.</p>
+            `;
+            const link = document.createElement("a");
+            link.className = "btn btn-primary";
+            link.href = "../institution/register.html";
+            link.textContent = "Register an institution";
+            empty.appendChild(link);
+            contentSlot.appendChild(empty);
+            return;
+          }
+          institutionId = own.institutionId;
+        } else {
+          // Client-side-only ownership check, same pattern as needs/create.html.
+          const own = await Api.institutions.getByUserId(user.userId);
+          if (!own || String(own.institutionId) !== String(institutionId)) {
+            const warn = document.createElement("div");
+            warn.className = "pending-banner";
+            warn.innerHTML = `<strong>⚠️ Heads up</strong><p>This institution ID doesn't match your own registered institution. The backend won't stop you from viewing or actioning it anyway (it doesn't check this server-side yet) - but it probably isn't what you meant to do.</p>`;
+            notice.appendChild(warn);
+          }
+        }
+        await load();
+      } catch (err) {
+        console.error(err);
+        contentSlot.innerHTML = `<p>Could not load this page. ${err.message || ""}</p>`;
+      }
+    })();
+  </script>
+</body>
+</html>
