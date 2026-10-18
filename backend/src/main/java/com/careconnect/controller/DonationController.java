@@ -1,6 +1,7 @@
 package com.careconnect.controller;
 
 import com.careconnect.model.Donation;
+import com.careconnect.model.DonationHistoryEntry;
 import com.careconnect.service.DonationService;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
@@ -28,6 +29,8 @@ import java.util.List;
  * Endpoints:
  *   GET  /api/donations?donorId={id}              -> full donation history for a donor
  *   GET  /api/donations?institutionId={id}         -> full donation history for an institution
+ *   GET  /api/donations/history?donorId={id}        -> combined history for a donor (ITEM rows include item details)
+ *   GET  /api/donations/history?institutionId={id}  -> combined history for an institution (ITEM rows include item details)
  *   GET  /api/donations/pending?donorId={id}        -> a donor's pending pledges only
  *   GET  /api/donations/pending?institutionId={id}  -> an institution's pending pledges only
  *   GET  /api/donations/{id}                        -> get one donation
@@ -71,6 +74,9 @@ public class DonationController extends HttpServlet {
 
             } else if (pathInfo.equals("/pending")) {
                 handleListDonations(req, resp, true);
+
+            } else if (pathInfo.equals("/history")) {
+                handleCombinedHistory(req, resp);
 
             } else {
                 // GET /api/donations/{id}
@@ -118,6 +124,35 @@ public class DonationController extends HttpServlet {
 
         resp.setStatus(HttpServletResponse.SC_OK);
         resp.getWriter().write(gson.toJson(donations));
+    }
+
+    /**
+     * GET /api/donations/history?donorId={id} or ?institutionId={id}
+     * Same donations as the plain list endpoint, but ITEM-type rows also carry
+     * their item details (itemName, quantity, pickupOrDrop, deliveryStatus, ...).
+     */
+    private void handleCombinedHistory(HttpServletRequest req, HttpServletResponse resp)
+            throws IOException, SQLException {
+
+        String donorIdParam = req.getParameter("donorId");
+        String institutionIdParam = req.getParameter("institutionId");
+
+        List<DonationHistoryEntry> history;
+
+        if (donorIdParam != null) {
+            history = donationService.getCombinedHistoryForDonor(Integer.parseInt(donorIdParam));
+
+        } else if (institutionIdParam != null) {
+            history = donationService.getCombinedHistoryForInstitution(Integer.parseInt(institutionIdParam));
+
+        } else {
+            writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
+                    "Either donorId or institutionId query parameter is required.");
+            return;
+        }
+
+        resp.setStatus(HttpServletResponse.SC_OK);
+        resp.getWriter().write(gson.toJson(history));
     }
 
     @Override

@@ -156,23 +156,12 @@ public class ItemDonationController extends HttpServlet {
             }
 
         } catch (JsonSyntaxException e) {
-            writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Malformed JSON in request body.");
+    writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Malformed JSON in request body.");
 
-        } catch (JsonSyntaxException e) {
-            writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Malformed JSON in request body.");
-        } catch (NumberFormatException e) {
+} catch (NumberFormatException e) {
             writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Invalid ID or date in request.");
         } catch (IllegalArgumentException e) {
             writeError(resp, HttpServletResponse.SC_NOT_FOUND, e.getMessage());
-        } catch (IllegalStateException e) {
-            writeError(resp, HttpServletResponse.SC_CONFLICT, e.getMessage());
-        } catch (SQLException e) {
-
-        } catch (NumberFormatException e) {
-            writeError(resp, HttpServletResponse.SC_BAD_REQUEST, "Invalid ID or date in request.");
-        } catch (IllegalArgumentException e) {
-            writeError(resp, HttpServletResponse.SC_NOT_FOUND, e.getMessage());
->>>>>>> origin/main
         } catch (IllegalStateException e) {
             writeError(resp, HttpServletResponse.SC_CONFLICT, e.getMessage());
         } catch (SQLException e) {
