@@ -182,7 +182,8 @@
     font-size:13px;
     margin-bottom:12px;
   }
-  .reg-card .status-pill{
+  .reg-card .status-pill,
+  .status-pill{
     font-family:'IBM Plex Mono', monospace;
     font-size:11px;
     padding:2px 8px;
@@ -192,6 +193,7 @@
   .pill-accepted{ background:#E1EFE5; color:var(--ok); }
   .pill-rejected{ background:#FBEAE4; color:var(--danger); }
   .pill-completed{ background:#E3E9F2; color:#3B5378; }
+  .hint{ font-size:12px; color:var(--ink-soft); font-weight:400; }
 </style>
 </head>
 <body>
@@ -313,6 +315,45 @@
       <span class="status mono" id="opps-status"></span>
     </div>
     <div id="opportunities-list"></div>
+
+    <h3 style="margin-top:24px;">Post a volunteer opportunity</h3>
+    <form class="inline-form" id="create-opportunity-form" onsubmit="handleCreateOpportunity(event)">
+      <div class="full">
+        <label>Title</label>
+        <input name="title" placeholder="e.g. Evening reading &amp; companionship" required>
+      </div>
+      <div>
+        <label>Date</label>
+        <input name="eventDate" type="date" required>
+      </div>
+      <div>
+        <label>Max volunteers <span class="hint">(optional)</span></label>
+        <input name="maxVolunteers" type="number" min="1" placeholder="Leave empty for no limit">
+      </div>
+      <div>
+        <label>Start time <span class="hint">(optional)</span></label>
+        <input name="startTime" type="time">
+      </div>
+      <div>
+        <label>End time <span class="hint">(optional)</span></label>
+        <input name="endTime" type="time">
+      </div>
+      <div class="full">
+        <label>Location</label>
+        <input name="location" required>
+      </div>
+      <div class="full">
+        <label>Required skills <span class="hint">(optional)</span></label>
+        <input name="requiredSkills" placeholder="e.g. Teaching, First aid, Music">
+      </div>
+      <div class="full">
+        <label>Description</label>
+        <textarea name="description" required></textarea>
+      </div>
+      <div class="full">
+        <button type="submit" class="btn-primary" id="create-opp-btn">Post opportunity</button>
+      </div>
+    </form>
   </section>
 
 </main>
@@ -584,7 +625,25 @@
     const wrap = document.createElement('div');
     wrap.className = 'card';
     const status = (d.deliveryStatus || 'PENDING').toUpperCase();
-    const pillClass = status === 'DELIVERED' ? 'pill-accepted' : status === 'CANCELLED' ? 'pill-rejected' : status === 'PICKED_UP' ? 'pill-completed' : 'pill-pending';
+    const pillClass =
+            status === 'DELIVERED' || status === 'ACCEPTED' ? 'pill-accepted' :
+                    status === 'CANCELLED' || status === 'REJECTED' ? 'pill-rejected' :
+                            status === 'PICKED_UP' ? 'pill-completed' : 'pill-pending';
+    const id = d.itemDonationId;
+
+    let buttons = '';
+    if(status === 'PENDING'){
+      buttons += `<button class="btn-accept" onclick="itemDonationAction(${id}, 'approve')">Approve</button>`;
+      buttons += `<button class="btn-reject" onclick="itemDonationAction(${id}, 'reject')">Reject</button>`;
+    }
+    if(status === 'ACCEPTED' && d.pickupOrDrop === 'PICKUP'){
+      buttons += `<button class="btn-gold" onclick="itemDonationAction(${id}, 'markPickedUp')">Mark picked up</button>`;
+    }
+    if(status === 'ACCEPTED' || status === 'PICKED_UP'){
+      buttons += `<button class="btn-accept" onclick="itemDonationAction(${id}, 'markDelivered')">Mark delivered</button>`;
+      buttons += `<button class="btn-danger" onclick="itemDonationAction(${id}, 'cancel')">Cancel</button>`;
+    }
+
     wrap.innerHTML = `
       <div class="card-row">
         <div>
@@ -594,11 +653,7 @@
           <div class="meta">Status: <span class="status-pill ${pillClass}">${status}</span></div>
           ${d.pickupAddress ? `<div class="meta">Pickup from: ${escapeHtml(d.pickupAddress)}</div>` : ''}
         </div>
-        <div class="actions" id="item-donation-actions-${d.itemDonationId}">
-          ${status === 'PENDING' && d.pickupOrDrop === 'PICKUP' ? `<button class="btn-gold" onclick="itemDonationAction(${d.itemDonationId}, 'markPickedUp')">Mark picked up</button>` : ''}
-          ${(status === 'PENDING' || status === 'PICKED_UP') ? `<button class="btn-accept" onclick="itemDonationAction(${d.itemDonationId}, 'markDelivered')">Mark delivered</button>` : ''}
-          ${status !== 'DELIVERED' && status !== 'CANCELLED' ? `<button class="btn-danger" onclick="itemDonationAction(${d.itemDonationId}, 'cancel')">Cancel</button>` : ''}
-        </div>
+        <div class="actions" id="item-donation-actions-${id}">${buttons}</div>
       </div>
     `;
     return wrap;
@@ -640,9 +695,6 @@
   function renderNeedCard(n){
     const wrap = document.createElement('div');
     wrap.className = 'card';
-    const pct = n.quantityRequired > 0
-      ? Math.min(100, Math.round((n.quantityReceived / n.quantityRequired) * 100))
-      : 0;
     wrap.innerHTML = `
       <div class="card-row">
         <div>
@@ -747,7 +799,7 @@
       const opps = await Api.opportunities.listByInstitution(institutionId);
       statusEl.textContent = opps.length + ' opportunit' + (opps.length === 1 ? 'y' : 'ies');
       if(opps.length === 0){
-        listEl.innerHTML = '<div class="empty">No volunteer opportunities posted yet.</div>';
+        listEl.innerHTML = '<div class="empty">No volunteer opportunities posted yet. Post one below.</div>';
         return;
       }
       listEl.innerHTML = '';
@@ -760,42 +812,99 @@
     }
   }
 
-  function renderItemDonationCard(d){
+  function renderOpportunityCard(opp){
     const wrap = document.createElement('div');
     wrap.className = 'card';
-    const status = (d.deliveryStatus || 'PENDING').toUpperCase();
-    const pillClass =
-            status === 'DELIVERED' || status === 'ACCEPTED' ? 'pill-accepted' :
-                    status === 'CANCELLED' || status === 'REJECTED' ? 'pill-rejected' :
-                            status === 'PICKED_UP' ? 'pill-completed' : 'pill-pending';
-    const id = d.itemDonationId;
+    const status = (opp.status || 'OPEN').toUpperCase();
+    const pillClass = status === 'OPEN' ? 'pill-accepted' : status === 'COMPLETED' ? 'pill-completed' : 'pill-rejected';
+    const id = opp.opportunityId;
 
-    let buttons = '';
-    if(status === 'PENDING'){
-      buttons += `<button class="btn-accept" onclick="itemDonationAction(${id}, 'approve')">Approve</button>`;
-      buttons += `<button class="btn-reject" onclick="itemDonationAction(${id}, 'reject')">Reject</button>`;
+    const when = [
+      opp.eventDate ? escapeHtml(opp.eventDate) : '',
+      (opp.startTime ? escapeHtml(opp.startTime) : '') + (opp.endTime ? ' – ' + escapeHtml(opp.endTime) : ''),
+      opp.location ? escapeHtml(opp.location) : ''
+    ].filter(s => s && s.trim()).join(' · ');
+
+    let buttons = `<button class="btn-outline" onclick="loadRegistrations(${id}, this)">Applicants</button>`;
+    if(status === 'OPEN'){
+      buttons += `<button class="btn-gold" onclick="closeOpportunity(${id})">Close</button>`;
     }
-    if(status === 'ACCEPTED' && d.pickupOrDrop === 'PICKUP'){
-      buttons += `<button class="btn-gold" onclick="itemDonationAction(${id}, 'markPickedUp')">Mark picked up</button>`;
-    }
-    if(status === 'ACCEPTED' || status === 'PICKED_UP'){
-      buttons += `<button class="btn-accept" onclick="itemDonationAction(${id}, 'markDelivered')">Mark delivered</button>`;
-      buttons += `<button class="btn-danger" onclick="itemDonationAction(${id}, 'cancel')">Cancel</button>`;
+    if(status === 'OPEN' || status === 'CLOSED'){
+      buttons += `<button class="btn-accept" onclick="completeOpportunity(${id})">Mark completed</button>`;
     }
 
     wrap.innerHTML = `
       <div class="card-row">
         <div>
-          <h3>${escapeHtml(d.itemName)} × ${d.quantity} — Item donation</h3>
-          <span class="tag">${escapeHtml(d.pickupOrDrop)}</span>
-          ${d.needId ? `<span class="tag" style="margin-left:6px;">Need #${d.needId}</span>` : ''}
-          <div class="meta">Status: <span class="status-pill ${pillClass}">${status}</span></div>
-          ${d.pickupAddress ? `<div class="meta">Pickup from: ${escapeHtml(d.pickupAddress)}</div>` : ''}
+          <h3>${escapeHtml(opp.title)}</h3>
+          <span class="status-pill ${pillClass}">${escapeHtml(status)}</span>
+          ${opp.maxVolunteers ? `<span class="tag" style="margin-left:6px;">Max ${opp.maxVolunteers}</span>` : ''}
+          ${opp.requiredSkills ? `<span class="tag" style="margin-left:6px;">${escapeHtml(opp.requiredSkills)}</span>` : ''}
+          <div class="meta">${when}</div>
+          <div class="meta">${escapeHtml(opp.description || '')}</div>
         </div>
-        <div class="actions" id="item-donation-actions-${id}">${buttons}</div>
+        <div class="actions">${buttons}</div>
       </div>
+      <div class="rsvp-list" id="regs-${id}" style="display:none;"></div>
     `;
     return wrap;
+  }
+
+  async function handleCreateOpportunity(e){
+    e.preventDefault();
+    const f = e.target;
+    const btn = document.getElementById('create-opp-btn');
+
+    // <input type="time"> gives "HH:mm"; the backend uses Time.valueOf which needs "HH:mm:ss"
+    const toSeconds = t => t ? (t.length === 5 ? t + ':00' : t) : null;
+
+    if(f.startTime.value && f.endTime.value && f.endTime.value <= f.startTime.value){
+      alert('End time must be after start time.');
+      return;
+    }
+
+    const payload = {
+      institutionId: Number(institutionId),
+      title: f.title.value.trim(),
+      description: f.description.value.trim(),
+      requiredSkills: f.requiredSkills.value.trim() || null,
+      eventDate: f.eventDate.value,
+      startTime: toSeconds(f.startTime.value),
+      endTime: toSeconds(f.endTime.value),
+      location: f.location.value.trim(),
+      maxVolunteers: f.maxVolunteers.value ? Number(f.maxVolunteers.value) : null
+    };
+
+    btn.disabled = true;
+    try{
+      await Api.opportunities.create(payload);
+      f.reset();
+      loadOpportunities();
+    } catch(err){
+      alert('Could not post opportunity: ' + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function closeOpportunity(opportunityId){
+    if(!confirm('Close this opportunity? Volunteers will no longer be able to apply.')) return;
+    try{
+      await Api.opportunities.close(opportunityId);
+      loadOpportunities();
+    } catch(err){
+      alert('Could not close: ' + err.message);
+    }
+  }
+
+  async function completeOpportunity(opportunityId){
+    if(!confirm('Mark this opportunity as completed?')) return;
+    try{
+      await Api.opportunities.complete(opportunityId);
+      loadOpportunities();
+    } catch(err){
+      alert('Could not update: ' + err.message);
+    }
   }
 
   async function loadRegistrations(opportunityId, btn){
