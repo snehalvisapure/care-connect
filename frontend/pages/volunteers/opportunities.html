@@ -43,12 +43,19 @@
 
       const contentSlot = document.getElementById("content-slot");
 
-      // If logged in, figure out (once) whether they have a volunteer
-      // profile, and what they've already applied to, so we can show
+      // Where to send people after they log in / register, so they land back here.
+      const returnTo = encodeURIComponent(window.location.pathname);
+      const LOGIN_URL = "../auth/login.html?redirect=" + returnTo;
+      const REGISTER_URL = "../auth/register.html?redirect=" + returnTo; // <-- adjust if your register page lives elsewhere
+
+      // If logged in as a volunteer, figure out (once) whether they have a
+      // volunteer profile, and what they've already applied to, so we can show
       // the right button on each card without extra calls per card.
       let myVolunteerProfile = null;
       let myOpportunityIds = new Set();
-      if (user) {
+      const isVolunteerRole = !!user && user.role === "VOLUNTEER";
+
+      if (isVolunteerRole) {
         try {
           const allVolunteers = await Api.volunteers.list();
           myVolunteerProfile = allVolunteers.find((v) => String(v.userId) === String(user.userId)) || null;
@@ -73,6 +80,77 @@
         }
       }
 
+      // Builds the action area for ONE card, depending on who is viewing.
+      function buildActions(actions, opp) {
+        actions.style.display = "flex";
+        actions.style.gap = "8px";
+        actions.style.flexWrap = "wrap";
+        actions.style.alignItems = "center";
+
+        // 1) Logged out -> per-card Log in / Register
+        if (!user) {
+          const loginBtn = document.createElement("a");
+          loginBtn.className = "btn btn-primary btn-sm";
+          loginBtn.href = LOGIN_URL;
+          loginBtn.textContent = "Log in to apply";
+          actions.appendChild(loginBtn);
+
+          const regBtn = document.createElement("a");
+          regBtn.className = "btn btn-outline btn-sm";
+          regBtn.href = REGISTER_URL;
+          regBtn.textContent = "Register";
+          actions.appendChild(regBtn);
+          return;
+        }
+
+        // 2) Logged in but not a volunteer account (donor / institution / admin)
+        if (!isVolunteerRole) {
+          const note = document.createElement("span");
+          note.className = "text-small";
+          note.textContent = "Only volunteer accounts can apply.";
+          actions.appendChild(note);
+          return;
+        }
+
+        // 3) Volunteer account without a volunteer profile yet
+        if (!myVolunteerProfile) {
+          const link = document.createElement("a");
+          link.className = "btn btn-primary btn-sm";
+          link.href = "register.html";
+          link.textContent = "Become a volunteer to apply";
+          actions.appendChild(link);
+          return;
+        }
+
+        // 4) Volunteer with profile -> Apply / Already applied
+        if (myOpportunityIds.has(String(opp.opportunityId))) {
+          const applied = document.createElement("span");
+          applied.className = "status-pill registration-status-APPLIED";
+          applied.textContent = "Already applied";
+          actions.appendChild(applied);
+          return;
+        }
+
+        const applyBtn = document.createElement("button");
+        applyBtn.className = "btn btn-primary btn-sm";
+        applyBtn.type = "button";
+        applyBtn.textContent = "Apply";
+        applyBtn.addEventListener("click", async () => {
+          applyBtn.disabled = true;
+          try {
+            await Api.registrations.apply(myVolunteerProfile.volunteerId, opp.opportunityId);
+            UiHelpers.toast("Applied! Check My applications for status.", "success");
+            myOpportunityIds.add(String(opp.opportunityId));
+            load();
+          } catch (err) {
+            console.error(err);
+            UiHelpers.toast(err.message || "Could not apply.", "error");
+            applyBtn.disabled = false;
+          }
+        });
+        actions.appendChild(applyBtn);
+      }
+
       async function load() {
         let opportunities;
         try {
@@ -89,22 +167,6 @@
         header.className = "page-header";
         header.innerHTML = `<h3 style="margin:0;">${opportunities.length} open opportunit${opportunities.length === 1 ? "y" : "ies"}</h3>`;
         contentSlot.appendChild(header);
-
-        if (!user) {
-          contentSlot.appendChild(
-            UiHelpers.loginRequiredNotice("Applying to an opportunity", "../auth/login.html")
-          );
-        } else if (!myVolunteerProfile) {
-          const notice = document.createElement("div");
-          notice.className = "pending-banner";
-          notice.innerHTML = `<strong>Not registered as a volunteer yet</strong><p>You need a volunteer profile before applying.</p>`;
-          const link = document.createElement("a");
-          link.className = "btn btn-primary btn-sm";
-          link.href = "register.html";
-          link.textContent = "Become a volunteer";
-          notice.appendChild(link);
-          contentSlot.appendChild(notice);
-        }
 
         if (opportunities.length === 0) {
           const empty = document.createElement("div");
@@ -139,42 +201,13 @@
             <div class="opportunity-card-actions"></div>
           `;
 
-          const actions = card.querySelector(".opportunity-card-actions");
-
-          if (user && myVolunteerProfile) {
-            if (myOpportunityIds.has(String(opp.opportunityId))) {
-              const applied = document.createElement("span");
-              applied.className = "status-pill registration-status-APPLIED";
-              applied.textContent = "Already applied";
-              actions.appendChild(applied);
-            } else {
-              const applyBtn = document.createElement("button");
-              applyBtn.className = "btn btn-primary btn-sm";
-              applyBtn.type = "button";
-              applyBtn.textContent = "Apply";
-              applyBtn.addEventListener("click", async () => {
-                applyBtn.disabled = true;
-                try {
-                  await Api.registrations.apply(myVolunteerProfile.volunteerId, opp.opportunityId);
-                  UiHelpers.toast("Applied! Check My applications for status.", "success");
-                  myOpportunityIds.add(String(opp.opportunityId));
-                  load();
-                } catch (err) {
-                  console.error(err);
-                  UiHelpers.toast(err.message || "Could not apply.", "error");
-                  applyBtn.disabled = false;
-                }
-              });
-              actions.appendChild(applyBtn);
-            }
-          }
-
+          buildActions(card.querySelector(".opportunity-card-actions"), opp);
           grid.appendChild(card);
         }
 
         contentSlot.appendChild(grid);
 
-        if (user && myVolunteerProfile) {
+        if (isVolunteerRole && myVolunteerProfile) {
           const link = document.createElement("div");
           link.style.marginTop = "16px";
           link.innerHTML = `<a class="btn btn-outline btn-sm" href="my-applications.html">My applications</a>`;
