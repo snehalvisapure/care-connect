@@ -1,6 +1,6 @@
 -- MySQL dump 10.13  Distrib 8.0.46, for Win64 (x86_64)
 --
--- Host: 127.0.0.1    Database: careconnect
+-- Host: localhost    Database: careconnect
 -- ------------------------------------------------------
 -- Server version	8.4.2
 
@@ -43,7 +43,7 @@ CREATE TABLE `donations` (
   CONSTRAINT `donations_ibfk_1` FOREIGN KEY (`donor_id`) REFERENCES `users` (`user_id`),
   CONSTRAINT `donations_ibfk_2` FOREIGN KEY (`institution_id`) REFERENCES `institutions` (`institution_id`),
   CONSTRAINT `donations_ibfk_3` FOREIGN KEY (`need_id`) REFERENCES `needs` (`need_id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -73,7 +73,7 @@ CREATE TABLE `event_rsvp` (
   KEY `user_id` (`user_id`),
   CONSTRAINT `event_rsvp_ibfk_1` FOREIGN KEY (`event_id`) REFERENCES `events` (`event_id`) ON DELETE CASCADE,
   CONSTRAINT `event_rsvp_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -105,7 +105,7 @@ CREATE TABLE `events` (
   PRIMARY KEY (`event_id`),
   KEY `institution_id` (`institution_id`),
   CONSTRAINT `events_ibfk_1` FOREIGN KEY (`institution_id`) REFERENCES `institutions` (`institution_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -171,7 +171,7 @@ CREATE TABLE `institutions` (
   UNIQUE KEY `registration_number` (`registration_number`),
   KEY `user_id` (`user_id`),
   CONSTRAINT `institutions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -197,11 +197,12 @@ CREATE TABLE `item_donations` (
   `quantity` int NOT NULL,
   `pickup_or_drop` enum('PICKUP','DROP_OFF') NOT NULL,
   `pickup_address` text,
-  `delivery_status` enum('PENDING','ACCEPTED','REJECTED','PICKED_UP','DELIVERED','CANCELLED') DEFAULT 'PENDING',  `delivery_date` date DEFAULT NULL,
+  `delivery_status` enum('PENDING','ACCEPTED','REJECTED','PICKED_UP','DELIVERED','CANCELLED') DEFAULT 'PENDING',
+  `delivery_date` date DEFAULT NULL,
   PRIMARY KEY (`item_donation_id`),
   KEY `donation_id` (`donation_id`),
   CONSTRAINT `item_donations_ibfk_1` FOREIGN KEY (`donation_id`) REFERENCES `donations` (`donation_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -234,7 +235,7 @@ CREATE TABLE `needs` (
   PRIMARY KEY (`need_id`),
   KEY `institution_id` (`institution_id`),
   CONSTRAINT `needs_ibfk_1` FOREIGN KEY (`institution_id`) REFERENCES `institutions` (`institution_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -277,6 +278,44 @@ LOCK TABLES `notifications` WRITE;
 UNLOCK TABLES;
 
 --
+-- Table structure for table `payments`
+--
+
+DROP TABLE IF EXISTS `payments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `payments` (
+  `payment_id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` int NOT NULL,
+  `reference_type` varchar(30) NOT NULL,
+  `reference_id` bigint NOT NULL,
+  `amount_paise` bigint NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'INR',
+  `status` enum('CREATED','PAID','FAILED','REFUNDED') NOT NULL DEFAULT 'CREATED',
+  `razorpay_order_id` varchar(64) NOT NULL,
+  `razorpay_payment_id` varchar(64) DEFAULT NULL,
+  `razorpay_signature` varchar(128) DEFAULT NULL,
+  `failure_reason` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`payment_id`),
+  UNIQUE KEY `uq_order` (`razorpay_order_id`),
+  UNIQUE KEY `uq_payment` (`razorpay_payment_id`),
+  KEY `idx_reference` (`reference_type`,`reference_id`),
+  KEY `idx_user` (`user_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `payments`
+--
+
+LOCK TABLES `payments` WRITE;
+/*!40000 ALTER TABLE `payments` DISABLE KEYS */;
+/*!40000 ALTER TABLE `payments` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `users`
 --
 
@@ -295,7 +334,7 @@ CREATE TABLE `users` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`user_id`),
   UNIQUE KEY `email` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=24 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -330,7 +369,7 @@ CREATE TABLE `volunteer_opportunities` (
   PRIMARY KEY (`opportunity_id`),
   KEY `institution_id` (`institution_id`),
   CONSTRAINT `volunteer_opportunities_ibfk_1` FOREIGN KEY (`institution_id`) REFERENCES `institutions` (`institution_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -360,7 +399,7 @@ CREATE TABLE `volunteer_registrations` (
   KEY `volunteer_id` (`volunteer_id`),
   CONSTRAINT `volunteer_registrations_ibfk_1` FOREIGN KEY (`opportunity_id`) REFERENCES `volunteer_opportunities` (`opportunity_id`) ON DELETE CASCADE,
   CONSTRAINT `volunteer_registrations_ibfk_2` FOREIGN KEY (`volunteer_id`) REFERENCES `volunteers` (`volunteer_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -389,7 +428,7 @@ CREATE TABLE `volunteers` (
   PRIMARY KEY (`volunteer_id`),
   UNIQUE KEY `user_id` (`user_id`),
   CONSTRAINT `volunteers_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -410,4 +449,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-05 14:42:58
+-- Merged dump (teammate + Nehaa), 2026-10-20
