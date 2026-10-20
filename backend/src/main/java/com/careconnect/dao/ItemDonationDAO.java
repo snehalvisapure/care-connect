@@ -13,7 +13,10 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * DAO for the `item_donations` table - core CRUD only.
@@ -110,6 +113,49 @@ public class ItemDonationDAO {
                 return null;
             }
         }
+    }
+
+    /**
+     * Fetches the item_donations rows for many parent donations in ONE query
+     * (WHERE donation_id IN (...)), keyed by donation_id. Used by the combined
+     * donation history so it doesn't run one query per ITEM donation.
+     * Donations that have no item_donations row simply don't appear in the map.
+     *
+     * @return map of donation_id -> ItemDonation (empty if the input is null/empty).
+     */
+    public Map<Integer, ItemDonation> findByDonationIds(Collection<Integer> donationIds) throws SQLException {
+        Map<Integer, ItemDonation> result = new HashMap<>();
+        if (donationIds == null || donationIds.isEmpty()) {
+            return result;
+        }
+
+        // Only "?" placeholders are concatenated into the SQL - the ids themselves
+        // are always bound as parameters, so this is not open to SQL injection.
+        StringBuilder placeholders = new StringBuilder();
+        for (int i = 0; i < donationIds.size(); i++) {
+            if (i > 0) {
+                placeholders.append(", ");
+            }
+            placeholders.append("?");
+        }
+        String sql = "SELECT * FROM item_donations WHERE donation_id IN (" + placeholders + ")";
+
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            int index = 1;
+            for (Integer donationId : donationIds) {
+                stmt.setInt(index++, donationId);
+            }
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    ItemDonation itemDonation = mapRowToItemDonation(rs);
+                    result.put(itemDonation.getDonationId(), itemDonation);
+                }
+            }
+        }
+        return result;
     }
 
     /**

@@ -28,10 +28,12 @@
 
   <div id="footer-slot"></div>
 
-  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers -> razorpay -> payment) -->
   <script src="../../js/api.js"></script>
   <script src="../../js/session.js"></script>
   <script src="../../js/ui-helpers.js"></script>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="../../js/payment.js"></script>
   <!-- /Shared scripts -->
 
   <script>
@@ -110,27 +112,34 @@
 
           const actions = row.querySelector(".donation-row-actions");
           if (d.paymentStatus === "PENDING" && d.donationStatus !== "CANCELLED") {
-            const confirmBtn = document.createElement("button");
-            confirmBtn.className = "btn btn-primary btn-sm";
-            confirmBtn.type = "button";
-            confirmBtn.textContent = "Confirm payment";
-            confirmBtn.title = "No real payment gateway exists yet - this simulates completing the payment.";
-            confirmBtn.addEventListener("click", async () => {
-              const transactionId = prompt(
-                "No real payment gateway is wired up yet - enter any reference to simulate a completed payment:",
-                "TXN-" + Date.now()
-              );
-              if (!transactionId) return;
-              try {
-                await Api.donations.confirm(d.donationId, transactionId);
-                UiHelpers.toast("Payment confirmed. Thank you!", "success");
-                load();
-              } catch (err) {
-                console.error(err);
-                UiHelpers.toast(err.message || "Could not confirm payment.", "error");
-              }
+            const payBtn = document.createElement("button");
+            payBtn.className = "btn btn-primary btn-sm";
+            payBtn.type = "button";
+            payBtn.textContent = "Pay now";
+            payBtn.title = "Pay securely with Razorpay";
+            payBtn.addEventListener("click", () => {
+              payBtn.disabled = true;
+              CareConnectPay.start({
+                donationId: d.donationId,
+                description: "Donation to " + instName,
+                prefill: {
+                  name: user.fullName || "",
+                  email: user.email || "",
+                  contact: user.phone || "",
+                },
+                onSuccess: () => {
+                  UiHelpers.toast("Payment successful. Thank you!", "success");
+                  load();
+                },
+                onFailure: (err) => {
+                  UiHelpers.toast(err.message || "Payment failed.", "error");
+                },
+                onCancel: () => {
+                  payBtn.disabled = false;
+                },
+              });
             });
-            actions.appendChild(confirmBtn);
+            actions.appendChild(payBtn);
 
             const cancelBtn = document.createElement("button");
             cancelBtn.className = "btn btn-outline btn-sm";
