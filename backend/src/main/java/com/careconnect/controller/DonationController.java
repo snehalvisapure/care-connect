@@ -35,7 +35,9 @@ import java.util.List;
  *   GET  /api/donations/pending?institutionId={id}  -> an institution's pending pledges only
  *   GET  /api/donations/{id}                        -> get one donation
  *   POST /api/donations                              -> create a monetary pledge/donation
- *   POST /api/donations/{id}/confirm                 -> confirm payment (pledge -> completed)
+ *   POST /api/donations/{id}/confirm                 -> DISABLED (403): payments are now confirmed only by the
+ *                                                       Razorpay payment module (/api/payments/verify) after the
+ *                                                       payment signature is verified
  *   POST /api/donations/{id}/cancel                  -> cancel a pending pledge
  *
  * Note: in-kind (item) donations are a separate resource/table
@@ -53,10 +55,6 @@ public class DonationController extends HttpServlet {
         int institutionId;
         Integer needId;
         BigDecimal amount;
-    }
-
-    private static class ConfirmPaymentRequest {
-        String transactionId;
     }
 
     @Override
@@ -174,11 +172,12 @@ public class DonationController extends HttpServlet {
                 int donationId = Integer.parseInt(segments[0]);
 
                 if (segments.length == 2 && segments[1].equals("confirm")) {
-                    ConfirmPaymentRequest body = readJsonBody(req, ConfirmPaymentRequest.class);
-                    Donation confirmed = donationService.confirmPayment(
-                            donationId, body != null ? body.transactionId : null);
-                    resp.setStatus(HttpServletResponse.SC_OK);
-                    resp.getWriter().write(gson.toJson(confirmed));
+                    // Disabled on purpose. If any client could call this, a donor could mark a
+                    // donation as paid without paying. A donation is now completed only by the
+                    // payment module (com.careconnect.payment), after the Razorpay payment
+                    // signature has been verified on the server.
+                    writeError(resp, HttpServletResponse.SC_FORBIDDEN,
+                            "Payments are confirmed automatically after a verified online payment.");
 
                 } else if (segments.length == 2 && segments[1].equals("cancel")) {
                     Donation cancelled = donationService.cancelPledge(donationId);
