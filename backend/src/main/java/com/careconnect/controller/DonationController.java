@@ -1,6 +1,7 @@
 package com.careconnect.controller;
 
 import com.careconnect.model.Donation;
+import com.careconnect.model.DonationHistoryEntry;
 import com.careconnect.service.DonationService;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
@@ -28,11 +29,15 @@ import java.util.List;
  * Endpoints:
  *   GET  /api/donations?donorId={id}              -> full donation history for a donor
  *   GET  /api/donations?institutionId={id}         -> full donation history for an institution
+ *   GET  /api/donations/history?donorId={id}        -> combined history for a donor (ITEM rows include item details)
+ *   GET  /api/donations/history?institutionId={id}  -> combined history for an institution (ITEM rows include item details)
  *   GET  /api/donations/pending?donorId={id}        -> a donor's pending pledges only
  *   GET  /api/donations/pending?institutionId={id}  -> an institution's pending pledges only
  *   GET  /api/donations/{id}                        -> get one donation
  *   POST /api/donations                              -> create a monetary pledge/donation
- *   POST /api/donations/{id}/confirm                 -> confirm payment (pledge -> completed)
+ *   POST /api/donations/{id}/confirm                 -> DISABLED (403): payments are now confirmed only by the
+ *                                                       Razorpay payment module (/api/payments/verify) after the
+ *                                                       payment signature is verified
  *   POST /api/donations/{id}/cancel                  -> cancel a pending pledge
  *
  * Note: in-kind (item) donations are a separate resource/table
@@ -52,10 +57,6 @@ public class DonationController extends HttpServlet {
         BigDecimal amount;
     }
 
-    private static class ConfirmPaymentRequest {
-        String transactionId;
-    }
-
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -71,6 +72,9 @@ public class DonationController extends HttpServlet {
 
             } else if (pathInfo.equals("/pending")) {
                 handleListDonations(req, resp, true);
+
+            } else if (pathInfo.equals("/history")) {
+                handleCombinedHistory(req, resp);
 
             } else {
                 // GET /api/donations/{id}
@@ -120,6 +124,35 @@ public class DonationController extends HttpServlet {
         resp.getWriter().write(gson.toJson(donations));
     }
 
+    /**
+     * GET /api/donations/history?donorId={id} or ?institutionId={id}
+     * Same donations as the plain list endpoint, but ITEM-type rows also carry
+     * their item details (itemName, quantity, pickupOrDrop, deliveryStatus, ...).
+     */
+    private void handleCombinedHistory(HttpServletRequest req, HttpServletResponse resp)
+            throws IOException, SQLException {
+
+        String donorIdParam = req.getParameter("donorId");
+        String institutionIdParam = req.getParameter("institutionId");
+
+        List<DonationHistoryEntry> history;
+
+        if (donorIdParam != null) {
+            history = donationService.getCombinedHistoryForDonor(Integer.parseInt(donorIdParam));
+
+        } else if (institutionIdParam != null) {
+            history = donationService.getCombinedHistoryForInstitution(Integer.parseInt(institutionIdParam));
+
+        } else {
+            writeError(resp, HttpServletResponse.SC_BAD_REQUEST,
+                    "Either donorId or institutionId query parameter is required.");
+            return;
+        }
+
+        resp.setStatus(HttpServletResponse.SC_OK);
+        resp.getWriter().write(gson.toJson(history));
+    }
+
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
@@ -139,11 +172,12 @@ public class DonationController extends HttpServlet {
                 int donationId = Integer.parseInt(segments[0]);
 
                 if (segments.length == 2 && segments[1].equals("confirm")) {
-                    ConfirmPaymentRequest body = readJsonBody(req, ConfirmPaymentRequest.class);
-                    Donation confirmed = donationService.confirmPayment(
-                            donationId, body != null ? body.transactionId : null);
-                    resp.setStatus(HttpServletResponse.SC_OK);
-                    resp.getWriter().write(gson.toJson(confirmed));
+                    // Disabled on purpose. If any client could call this, a donor could mark a
+                    // donation as paid without paying. A donation is now completed only by the
+                    // payment module (com.careconnect.payment), after the Razorpay payment
+                    // signature has been verified on the server.
+                    writeError(resp, HttpServletResponse.SC_FORBIDDEN,
+                            "Payments are confirmed automatically after a verified online payment.");
 
                 } else if (segments.length == 2 && segments[1].equals("cancel")) {
                     Donation cancelled = donationService.cancelPledge(donationId);

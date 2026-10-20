@@ -286,12 +286,38 @@ const Api = {
         body: JSON.stringify({ transactionId }),
       });
     },
-    // POST /api/donations/{id}/cancel (no body)
-    // Only works while paymentStatus is still PENDING.
-    cancel(id) {
-      return apiRequest(`/donations/${id}/cancel`, { method: "POST" });
-    },
-  },
+           // POST /api/donations/{id}/cancel (no body)
+       // Only works while paymentStatus is still PENDING.
+       cancel(id) {
+         return apiRequest(`/donations/${id}/cancel`, { method: "POST" });
+       },
+     },
+
+     // ------------------------------------------------------------
+     // Payments (Razorpay) — endpoints in com.careconnect.payment.
+     // The server reads the amount from the donations table; the browser never sends it.
+     // ------------------------------------------------------------
+     payments: {
+       // POST /api/payments/create-order   body: { referenceType: "DONATION", referenceId }
+       // -> { paymentId, orderId, amount (paise), currency, keyId }
+       createOrder(referenceType, referenceId) {
+         return apiRequest("/payments/create-order", {
+           method: "POST",
+           body: JSON.stringify({ referenceType, referenceId }),
+         });
+       },
+       // POST /api/payments/verify   body: { razorpay_order_id, razorpay_payment_id, razorpay_signature }
+       verify(data) {
+         return apiRequest("/payments/verify", {
+           method: "POST",
+           body: JSON.stringify(data),
+         });
+       },
+       // GET /api/payments/history -> { payments: [...] } for the logged-in user
+       history() {
+         return apiRequest("/payments/history");
+       },
+     },
 
   // ------------------------------------------------------------
   // Item donations (in-kind) — REAL, verified endpoints

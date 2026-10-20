@@ -2,13 +2,18 @@ package com.careconnect.service;
 
 import com.careconnect.dao.DonationDAO;
 import com.careconnect.dao.InstitutionDAO;
+import com.careconnect.dao.ItemDonationDAO;
 import com.careconnect.dao.NeedDAO;
 import com.careconnect.model.Donation;
+import com.careconnect.model.DonationHistoryEntry;
+import com.careconnect.model.ItemDonation;
 import com.careconnect.model.Need;
 
 import java.math.BigDecimal;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -19,11 +24,14 @@ import java.util.stream.Collectors;
  * There's no separate "pledge" concept in the schema: a pledge IS a
  * donation row where payment_status = PENDING (the state createDonation()
  * leaves it in by default). Confirming payment moves it to COMPLETED.
- * This class doesn't touch item_donations - that's ItemDonationService's job.
+ * This class doesn't create or change item_donations - that's
+ * ItemDonationService's job. It only READS them, to attach item details to
+ * ITEM rows in the combined donation history.
  */
 public class DonationService {
 
     private static final String DONATION_TYPE_MONEY = "MONEY";
+    private static final String DONATION_TYPE_ITEM = "ITEM";
 
     private static final String PAYMENT_STATUS_PENDING = "PENDING";
     private static final String PAYMENT_STATUS_COMPLETED = "COMPLETED";
@@ -32,11 +40,13 @@ public class DonationService {
     private static final String DONATION_STATUS_CANCELLED = "CANCELLED";
 
     private final DonationDAO donationDAO;
+    private final ItemDonationDAO itemDonationDAO;
     private final InstitutionDAO institutionDAO;
     private final NeedDAO needDAO;
 
     public DonationService() {
         this.donationDAO = new DonationDAO();
+        this.itemDonationDAO = new ItemDonationDAO();
         this.institutionDAO = new InstitutionDAO();
         this.needDAO = new NeedDAO();
     }
@@ -168,6 +178,45 @@ public class DonationService {
      */
     public List<Donation> getDonationHistoryForInstitution(int institutionId) throws SQLException {
         return donationDAO.getDonationsByInstitution(institutionId);
+    }
+
+    /**
+     * A donor's combined donation history (MONEY and ITEM), most recent first.
+     * Same rows as getDonationHistoryForDonor(), but every ITEM donation also
+     * carries its item details (name, quantity, pickup/drop-off, delivery status
+     * and date). MONEY rows have the item fields left null.
+     */
+    public List<DonationHistoryEntry> getCombinedHistoryForDonor(int donorId) throws SQLException {
+        return attachItemDetails(donationDAO.getDonationsByDonor(donorId));
+    }
+
+    /**
+     * An institution's combined donation history (MONEY and ITEM), most recent
+     * first, with item details attached to ITEM rows - see getCombinedHistoryForDonor().
+     */
+    public List<DonationHistoryEntry> getCombinedHistoryForInstitution(int institutionId) throws SQLException {
+        return attachItemDetails(donationDAO.getDonationsByInstitution(institutionId));
+    }
+
+    /**
+     * Stitches item_donations details onto ITEM-type donation rows. All the item
+     * rows are fetched with a single batched query (not one query per donation),
+     * and the original ordering of the donations list is preserved.
+     */
+    private List<DonationHistoryEntry> attachItemDetails(List<Donation> donations) throws SQLException {
+        List<Integer> itemDonationParentIds = donations.stream()
+                .filter(d -> DONATION_TYPE_ITEM.equals(d.getDonationType()))
+                .map(Donation::getDonationId)
+                .collect(Collectors.toList());
+
+        Map<Integer, ItemDonation> detailsByDonationId =
+                itemDonationDAO.findByDonationIds(itemDonationParentIds);
+
+        List<DonationHistoryEntry> entries = new ArrayList<>(donations.size());
+        for (Donation donation : donations) {
+            entries.add(new DonationHistoryEntry(donation, detailsByDonationId.get(donation.getDonationId())));
+        }
+        return entries;
     }
 
     /**

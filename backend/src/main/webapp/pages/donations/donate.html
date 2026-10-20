@@ -34,10 +34,12 @@
 
   <div id="footer-slot"></div>
 
-  <!-- Shared scripts (order matters: api -> session -> ui-helpers) -->
+  <!-- Shared scripts (order matters: api -> session -> ui-helpers -> razorpay -> payment) -->
   <script src="../../js/api.js"></script>
   <script src="../../js/session.js"></script>
   <script src="../../js/ui-helpers.js"></script>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="../../js/payment.js"></script>
   <!-- /Shared scripts -->
 
   <script>
@@ -45,22 +47,6 @@
       // Donating requires knowing who the donor is, so this needs login.
       const user = await UiHelpers.bootPage({ rootPath: "../../", requireAuth: true });
       if (!user) return;
-
-      const contentSlot = document.getElementById("content-slot");
-
-      // Only DONOR accounts should be able to donate. Login alone isn't
-      // enough - an institution or volunteer being logged in shouldn't
-      // land on a working donation form.
-      if (user.role !== "DONOR") {
-        document.getElementById("api-badge").appendChild(UiHelpers.badge("real"));
-        contentSlot.innerHTML = `
-          <div class="card empty-state">
-            <h3>This page is for donors only</h3>
-            <p>You're logged in as a ${user.role}, which can't make a donation here.</p>
-          </div>
-        `;
-        return;
-      }
 
       document.getElementById("api-badge").appendChild(UiHelpers.badge("unenforced"));
 
@@ -76,6 +62,7 @@
       `;
       notice.appendChild(warn);
 
+      const contentSlot = document.getElementById("content-slot");
       const params = new URLSearchParams(window.location.search);
       const presetNeedId = params.get("needId");
       let presetInstitutionId = params.get("institutionId");
@@ -247,12 +234,40 @@
             if (!amount || amount <= 0) {
               throw new Error("Enter an amount greater than 0.");
             }
-            await Api.donations.create({
+
+            // 1) Record the donation as a PENDING pledge.
+            const donation = await Api.donations.create({
               donorId: user.userId,
               institutionId,
               needId,
               amount,
             });
+
+            // 2) Open the Razorpay payment popup for that donation. The server reads the
+            //    amount from the donations table and completes the donation once the
+            //    payment signature is verified.
+            submitBtn.textContent = "Opening payment...";
+            CareConnectPay.start({
+              donationId: donation.donationId,
+              description: "Donation via CareConnect",
+              prefill: {
+                name: user.fullName || "",
+                email: user.email || "",
+                contact: user.phone || "",
+              },
+              onSuccess: () => {
+                UiHelpers.toast("Payment successful. Thank you for your donation!", "success");
+                window.location.href = "my-donations.html";
+              },
+              onFailure: (err) => {
+                UiHelpers.toast(err.message || "Payment failed.", "error");
+              },
+              onCancel: () => {
+                UiHelpers.toast("Payment not completed. You can finish it any time from My donations.", "error");
+                window.location.href = "my-donations.html";
+              },
+            });
+            return; // the popup takes over from here
           } else {
             const itemName = document.getElementById("itemName").value.trim();
             const quantity = Number(document.getElementById("quantity").value);
